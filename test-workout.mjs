@@ -197,7 +197,7 @@ await page.$eval(".group-card.legs", (el) => el.click());
 await page.waitForSelector(".ex-card");
 const legs = await page.evaluate(() => document.body.innerText);
 ok("treadmill stages shown", /Walk/.test(legs) && /3 min/.test(legs) && /3\.5/.test(legs) && /Sprint/.test(legs) && /10\.5/.test(legs) && /Set 1 of 2/i.test(legs));
-ok("leg machine variable reps", /Leg machine up/.test(legs) && /19/.test(legs) && /17/.test(legs) && /15/.test(legs));
+ok("leg machine variable reps", /Leg machine/.test(legs) && !/Leg machine up/.test(legs) && /19/.test(legs) && /17/.test(legs) && /15/.test(legs));
 
 await page.$eval("#toast", (el) => { el.hidden = true; });
 await page.screenshot({ path: path.join(SCREEN, "04-treadmill-stages.png") });
@@ -407,18 +407,72 @@ await page.evaluate(() => {
   Date.now = () => now;
   window.__jump = (ms) => { now += ms; };
 });
-await page.$eval('[data-act="tap-stage"][data-i="0"]', (el) => el.click());
-await page.waitForSelector("#timer-display");
-for (let i = 0; i < 8; i++) {
+
+const sequence = [];
+async function readStage() {
+  return page.evaluate(() => ({
+    title: document.querySelector(".sheet h2")?.textContent || "",
+    sub: document.querySelector("#timer-stage-sub")?.textContent || ""
+  }));
+}
+async function finishStage() {
   await page.evaluate(() => window.__jump(20 * 60 * 1000));
   await page.waitForFunction(() => {
     return !!document.querySelector(".timer-complete") || !!document.querySelector('[data-act="start-next-stage"]');
   }, { timeout: 4000 });
-  const next = await page.$('[data-act="start-next-stage"]');
-  if (!next) break;
+  return page.evaluate(() => document.querySelector('[data-act="start-next-stage"]')?.textContent || "");
+}
+
+await page.$eval('[data-act="tap-stage"][data-i="0"]', (el) => el.click());
+await page.waitForSelector("#timer-display");
+sequence.push(await readStage());
+let nextLabel = await finishStage();
+ok("set 1 starts at walk", sequence[0].title === "Walk" && /Set 1 of 2/.test(sequence[0].sub), JSON.stringify(sequence[0]));
+sequence.push(await (async () => {
+  ok("next after walk is jog", /Jog/.test(nextLabel) && !/Set 2/.test(nextLabel), nextLabel);
   await page.$eval('[data-act="start-next-stage"]', (el) => el.click());
   await page.waitForSelector("#timer-display");
+  const started = await readStage();
+  nextLabel = await finishStage();
+  return started;
+})());
+sequence.push(await (async () => {
+  ok("next after jog is sprint", /Sprint/.test(nextLabel), nextLabel);
+  await page.$eval('[data-act="start-next-stage"]', (el) => el.click());
+  await page.waitForSelector("#timer-display");
+  const started = await readStage();
+  nextLabel = await finishStage();
+  return started;
+})());
+ok("set 1 ran walk jog sprint", sequence.map((s) => s.title).join(",") === "Walk,Jog,Sprint", JSON.stringify(sequence));
+ok("finishing set 1 sprint offers set 2 walk", /Set 2/.test(nextLabel) && /Walk/.test(nextLabel) && !/Sprint/.test(nextLabel), nextLabel);
+
+const set1Progress = await page.evaluate(() => {
+  const d = JSON.parse(localStorage.getItem("hector-workout-v1"));
+  const legs = d.groups.find((g) => g.id === "legs");
+  const tread = legs.exercises.find((e) => e.name === "Treadmill run");
+  const sets = d.activeSession.exercises[tread.id].sets;
+  return sets.map((s) => s.stagesDone);
+});
+ok("set 1 stages stay done and set 2 is fresh", JSON.stringify(set1Progress) === JSON.stringify([[true, true, true], [false, false, false]]), JSON.stringify(set1Progress));
+
+await closeSheet();
+await page.$eval('[data-act="select-set"][data-i="1"]', (el) => el.click());
+await page.waitForSelector("#timer-display");
+const set2Start = await readStage();
+ok("selecting set 2 starts at walk", set2Start.title === "Walk" && /Set 2 of 2/.test(set2Start.sub), JSON.stringify(set2Start));
+sequence.push(set2Start);
+nextLabel = await finishStage();
+for (const expected of ["Jog", "Sprint"]) {
+  ok("set 2 continues in order toward " + expected, nextLabel.startsWith("Next: " + expected), nextLabel);
+  await page.$eval('[data-act="start-next-stage"]', (el) => el.click());
+  await page.waitForSelector("#timer-display");
+  const started = await readStage();
+  sequence.push(started);
+  nextLabel = await finishStage();
 }
+ok("full six-stage order", sequence.map((s) => s.title + " " + (s.sub.includes("Set 1") ? "1" : "2")).join(" | ") === "Walk 1 | Jog 1 | Sprint 1 | Walk 2 | Jog 2 | Sprint 2", JSON.stringify(sequence));
+ok("set 2 ends with no further stage", nextLabel === "", nextLabel);
 await closeSheet();
 await tapAct("save-workout");
 await page.waitForFunction(() => {
@@ -443,6 +497,29 @@ await page.reload({ waitUntil: "networkidle0" });
 await page.waitForSelector('.stage-btn[data-i="0"] .setting');
 const after = await page.$eval('.stage-btn[data-i="0"] .setting', (el) => el.textContent.trim());
 ok("adjusted speed survives reload", after === "@ 3.6", after);
+
+await page.evaluate(() => {
+  const d = JSON.parse(localStorage.getItem("hector-workout-v1"));
+  const legs = d.groups.find((g) => g.id === "legs");
+  const ex = legs.exercises.find((e) => e.name === "Leg machine");
+  ex.name = "Leg machine up";
+  ex.history = [{ id: "legacy-leg", date: "2026-11-01", sets: [{ reps: 19, weight: 130 }] }];
+  localStorage.setItem("hector-workout-v1", JSON.stringify(d));
+});
+await page.reload({ waitUntil: "networkidle0" });
+const migrated = await page.evaluate(() => {
+  const d = JSON.parse(localStorage.getItem("hector-workout-v1"));
+  const legs = d.groups.find((g) => g.id === "legs");
+  const named = legs.exercises.find((e) => e.name === "Leg machine" || e.name === "Leg machine up");
+  const stale = legs.exercises.some((e) => e.name === "Leg machine up");
+  return {
+    name: named && named.name,
+    stale,
+    reps: named && named.history && named.history[0] && named.history[0].sets[0].reps,
+    count: named && named.history && named.history.length
+  };
+});
+ok("stored Leg machine up is renamed and keeps history", migrated.name === "Leg machine" && !migrated.stale && migrated.reps === 19 && migrated.count === 1, JSON.stringify(migrated));
 
 const failed = results.filter((r) => !r.pass);
 console.log("\n---- " + (results.length - failed.length) + "/" + results.length + " passed ----");

@@ -136,7 +136,7 @@
             },
             {
               id: uid(),
-              name: "Leg machine up",
+              name: "Leg machine",
               equipmentNote: "lever adjusted",
               notes: "",
               isBodyweight: false,
@@ -185,15 +185,29 @@
       if (!raw) return defaultData();
       const parsed = JSON.parse(raw);
       if (!parsed || !Array.isArray(parsed.groups)) return defaultData();
-      return migrate(parsed);
+      const migrated = migrate(parsed);
+      if (migrated.changed) localStorage.setItem(STORAGE_KEY, JSON.stringify(migrated.data));
+      return migrated.data;
     } catch (err) {
       return defaultData();
     }
   }
 
   function migrate(parsed) {
-    if (!Array.isArray(parsed.runs)) parsed.runs = [];
-    return parsed;
+    let changed = false;
+    if (!Array.isArray(parsed.runs)) {
+      parsed.runs = [];
+      changed = true;
+    }
+    for (const group of parsed.groups || []) {
+      for (const exercise of group.exercises || []) {
+        if (exercise && exercise.name === "Leg machine up") {
+          exercise.name = "Leg machine";
+          changed = true;
+        }
+      }
+    }
+    return { data: parsed, changed };
   }
 
   function persist() {
@@ -257,8 +271,9 @@
 
   function normalizeStagesDone(exercise, set) {
     const n = (exercise.stages || []).length;
-    const prev = Array.isArray(set.stagesDone) ? set.stagesDone : [];
-    return Array.from({ length: n }, (_, i) => (set.done && !prev.length ? true : !!prev[i]));
+    const prev = Array.isArray(set.stagesDone) ? set.stagesDone : null;
+    if (!prev) return Array.from({ length: n }, () => !!set.done);
+    return Array.from({ length: n }, (_, i) => prev[i] === true);
   }
 
   function parseDurationSeconds(value) {
@@ -1009,22 +1024,26 @@
     if (!found) return null;
     const stages = found.exercise.stages || [];
     const sets = workingSets(found.exercise);
-    const trySet = (setIndex, startAt) => {
+    const offerAt = (setIndex) => {
       const set = sets[setIndex];
       if (!set) return null;
       const done = normalizeStagesDone(found.exercise, set);
-      for (let i = startAt; i < stages.length; i++) {
-        if (!done[i]) return offerFor(found.exercise, setIndex, i, sets.length, ctx.setIndex);
+      if (done.length && done.every((flag) => !flag)) {
+        return offerFor(found.exercise, setIndex, 0, sets.length, ctx.setIndex);
       }
-      for (let i = 0; i < startAt; i++) {
-        if (!done[i]) return offerFor(found.exercise, setIndex, i, sets.length, ctx.setIndex);
-      }
-      return null;
+      const i = done.findIndex((flag) => !flag);
+      if (i === -1) return null;
+      return offerFor(found.exercise, setIndex, i, sets.length, ctx.setIndex);
     };
-    const same = trySet(ctx.setIndex, ctx.stageIndex + 1);
-    if (same) return same;
+    const same = sets[ctx.setIndex];
+    if (same && ctx.stageIndex < stages.length - 1) {
+      const done = normalizeStagesDone(found.exercise, same);
+      for (let i = ctx.stageIndex + 1; i < stages.length; i++) {
+        if (!done[i]) return offerFor(found.exercise, ctx.setIndex, i, sets.length, ctx.setIndex);
+      }
+    }
     for (let s = ctx.setIndex + 1; s < sets.length; s++) {
-      const next = trySet(s, 0);
+      const next = offerAt(s);
       if (next) return next;
     }
     return null;
@@ -1410,7 +1429,30 @@
       return;
     }
     if (act === "select-set") {
-      ui.selected = { exerciseId: t.dataset.ex, setIndex: Number(t.dataset.i) };
+      const exerciseId = t.dataset.ex;
+      const setIndex = Number(t.dataset.i);
+      ui.selected = { exerciseId, setIndex };
+      const found = findExercise(exerciseId);
+      if (found && found.exercise.stages && found.exercise.stages.length) {
+        const sets = workingSets(found.exercise);
+        const set = sets[setIndex];
+        const done = set ? normalizeStagesDone(found.exercise, set) : [];
+        const open = done.findIndex((flag) => !flag);
+        const switching = !timer.stage || timer.stage.setIndex !== setIndex || timer.stage.exerciseId !== exerciseId;
+        if (switching && timer.stage) {
+          timer.running = false;
+          timer.justFinished = false;
+          timer.stage = null;
+          timer.nextOffer = null;
+          stopInterval();
+          releaseWakeLock();
+        }
+        if (switching && open !== -1) {
+          const stageIndex = done.every((flag) => !flag) ? 0 : open;
+          startStageTimer(exerciseId, setIndex, stageIndex);
+          return;
+        }
+      }
       render();
       return;
     }
@@ -1591,7 +1633,7 @@
       activeSession: parsed.activeSession || null,
       installTipDismissed: !!parsed.installTipDismissed,
       runs: Array.isArray(parsed.runs) ? parsed.runs : []
-    });
+    }).data;
   }
 
   /* ---------- outdoor run ---------- */
