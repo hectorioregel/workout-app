@@ -202,6 +202,35 @@ ok("leg machine variable reps", /Leg machine up/.test(legs) && /19/.test(legs) &
 await page.$eval("#toast", (el) => { el.hidden = true; });
 await page.screenshot({ path: path.join(SCREEN, "04-treadmill-stages.png") });
 
+const speedSize = await page.$eval(".speed-btn", (el) => {
+  const r = el.getBoundingClientRect();
+  return { w: Math.round(r.width), h: Math.round(r.height) };
+});
+ok("speed buttons are about 40px", speedSize.w >= 40 && speedSize.h >= 40, JSON.stringify(speedSize));
+
+await page.$eval('.stage-btn[data-i="0"] [data-act="stage-speed"][data-dir="1"]', (el) => el.click());
+const bumped = await page.$eval('.stage-btn[data-i="0"] .setting', (el) => el.textContent.trim());
+ok("plus raises walk speed by 0.1", bumped === "@ 3.6", bumped);
+ok("plus does not open the timer", !(await page.$(".sheet")));
+
+await page.$eval('.stage-btn[data-i="0"] [data-act="stage-speed"][data-dir="-1"]', (el) => el.click());
+const restored = await page.$eval('.stage-btn[data-i="0"] .setting', (el) => el.textContent.trim());
+ok("minus lowers walk speed by 0.1", restored === "@ 3.5", restored);
+ok("minus does not open the timer", !(await page.$(".sheet")));
+
+const clamped = await page.evaluate(() => {
+  const click = (dir) => document.querySelector(`.stage-btn[data-i="0"] [data-dir="${dir}"]`).click();
+  const read = () => document.querySelector('.stage-btn[data-i="0"] .setting').textContent.trim();
+  for (let i = 0; i < 40; i++) click("-1");
+  const low = read();
+  for (let i = 0; i < 200; i++) click("1");
+  const high = read();
+  for (let i = 0; i < 115; i++) click("-1");
+  const back = read();
+  return { low, high, back, sheet: !!document.querySelector(".sheet") };
+});
+ok("speed clamps to 0.5 and 15.0", clamped.low === "@ 0.5" && clamped.high === "@ 15.0" && clamped.back === "@ 3.5" && !clamped.sheet, JSON.stringify(clamped));
+
 async function closeSheet() {
   if (await page.$(".backdrop")) {
     await page.$eval(".backdrop", (el) => el.click());
@@ -367,6 +396,53 @@ const stored = await page.evaluate(() => {
   };
 });
 ok("finished run saved in localStorage", stored.runCount === 1 && stored.miles > 0.99 && stored.miles < 1.01 && stored.duration === 8 * 60 * 1000 && stored.hasPath && stored.groups, JSON.stringify(stored));
+
+await page.evaluate(() => { location.hash = "#/g/legs"; });
+await page.waitForSelector('.stage-btn[data-i="0"] [data-dir="1"]');
+await page.$eval('.stage-btn[data-i="0"] [data-dir="1"]', (el) => el.click());
+await page.waitForFunction(() => document.querySelector('.stage-btn[data-i="0"] .setting')?.textContent.includes("3.6"));
+
+await page.evaluate(() => {
+  let now = Date.now();
+  Date.now = () => now;
+  window.__jump = (ms) => { now += ms; };
+});
+await page.$eval('[data-act="tap-stage"][data-i="0"]', (el) => el.click());
+await page.waitForSelector("#timer-display");
+for (let i = 0; i < 8; i++) {
+  await page.evaluate(() => window.__jump(20 * 60 * 1000));
+  await page.waitForFunction(() => {
+    return !!document.querySelector(".timer-complete") || !!document.querySelector('[data-act="start-next-stage"]');
+  }, { timeout: 4000 });
+  const next = await page.$('[data-act="start-next-stage"]');
+  if (!next) break;
+  await page.$eval('[data-act="start-next-stage"]', (el) => el.click());
+  await page.waitForSelector("#timer-display");
+}
+await closeSheet();
+await tapAct("save-workout");
+await page.waitForFunction(() => {
+  const t = document.getElementById("toast");
+  return t && !t.hidden && /saved/i.test(t.textContent);
+});
+const savedSpeed = await page.evaluate(() => {
+  const d = JSON.parse(localStorage.getItem("hector-workout-v1"));
+  const legs = d.groups.find((g) => g.id === "legs");
+  const tread = legs.exercises.find((e) => e.name === "Treadmill run");
+  const hist = tread.history && tread.history[0];
+  return {
+    setting: tread.stages[0].setting,
+    jog: tread.stages[1].setting,
+    sprint: tread.stages[2].setting,
+    sets: hist ? hist.sets.map((s) => (s.stages || []).map((st) => st.setting)) : null
+  };
+});
+ok("adjusted speed is the next-workout default", savedSpeed.setting === "3.6" && savedSpeed.jog === "7.1" && savedSpeed.sprint === "10.5", JSON.stringify(savedSpeed));
+ok("history records the speed used", Array.isArray(savedSpeed.sets) && savedSpeed.sets.length === 2 && savedSpeed.sets.every((row) => row[0] === "3.6" && row[1] === "7.1" && row[2] === "10.5"), JSON.stringify(savedSpeed));
+await page.reload({ waitUntil: "networkidle0" });
+await page.waitForSelector('.stage-btn[data-i="0"] .setting');
+const after = await page.$eval('.stage-btn[data-i="0"] .setting', (el) => el.textContent.trim());
+ok("adjusted speed survives reload", after === "@ 3.6", after);
 
 const failed = results.filter((r) => !r.pass);
 console.log("\n---- " + (results.length - failed.length) + "/" + results.length + " passed ----");

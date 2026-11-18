@@ -290,6 +290,32 @@
     return parseDurationSeconds(stage && stage.duration);
   }
 
+  const SPEED_MIN = 0.5;
+  const SPEED_MAX = 15;
+  const SPEED_STEP = 0.1;
+
+  function stageSpeedNumber(setting) {
+    const n = parseFloat(String(setting == null ? "" : setting).replace(/[^0-9.]/g, ""));
+    return isFinite(n) ? n : SPEED_MIN;
+  }
+
+  function formatSpeed(n) {
+    return (Math.round(n * 10) / 10).toFixed(1);
+  }
+
+  function clampSpeed(n) {
+    const rounded = Math.round(n * 10) / 10;
+    return Math.min(SPEED_MAX, Math.max(SPEED_MIN, rounded));
+  }
+
+  function formatStageSetting(setting) {
+    const raw = String(setting == null ? "" : setting).trim();
+    if (!raw) return "";
+    const n = parseFloat(raw.replace(/[^0-9.]/g, ""));
+    if (!isFinite(n)) return "@ " + raw;
+    return "@ " + formatSpeed(n);
+  }
+
   function currentSetIndex(exercise) {
     if (ui.selected && ui.selected.exerciseId === exercise.id && Number.isInteger(ui.selected.setIndex)) {
       const sets = workingSets(exercise);
@@ -335,10 +361,19 @@
       const found = findExercise(exerciseId);
       if (!found) continue;
       const sets = entry.sets || [];
-      const completed = sets.filter((s) => s.done).map((s) => ({
-        reps: s.reps,
-        weight: s.weight
-      }));
+      const completed = sets.filter((s) => s.done).map((s) => {
+        const row = { reps: s.reps, weight: s.weight };
+        if (found.exercise.stages && found.exercise.stages.length) {
+          row.stages = found.exercise.stages.map((st, i) => ({
+            label: st.label || "Stage",
+            duration: st.duration || "",
+            setting: (Array.isArray(s.stageSpeeds) && s.stageSpeeds[i] != null && s.stageSpeeds[i] !== "")
+              ? String(s.stageSpeeds[i])
+              : (st.setting || "")
+          }));
+        }
+        return row;
+      });
       if (completed.length) {
         found.exercise.history.unshift({
           id: uid(),
@@ -622,13 +657,20 @@
         timer.stage.setIndex === safeIndex &&
         timer.stage.stageIndex === i;
       if (running) cls.push("running");
-      const setting = st.setting ? "@ " + escapeHtml(st.setting) : "";
+      const setting = formatStageSetting(st.setting);
       const mark = stagesDone[i] ? "✓ " : "";
-      return `<button class="${cls.join(" ")}" data-act="tap-stage" data-ex="${exercise.id}" data-set="${safeIndex}" data-i="${i}">
-        <span class="stage-name">${mark}${escapeHtml(st.label || "Stage")}</span>
-        <span class="dur">${escapeHtml(st.duration || "")}</span>
-        <span class="setting">${setting}</span>
-      </button>`;
+      const label = st.label || "Stage";
+      return `<div class="${cls.join(" ")}" role="button" tabindex="0" data-act="tap-stage" data-ex="${exercise.id}" data-set="${safeIndex}" data-i="${i}">
+        <span class="stage-main">
+          <span class="stage-name">${mark}${escapeHtml(label)}</span>
+          <span class="dur">${escapeHtml(st.duration || "")}</span>
+        </span>
+        <span class="speed-ctrl">
+          <button type="button" class="speed-btn" data-act="stage-speed" data-ex="${exercise.id}" data-i="${i}" data-dir="-1" aria-label="Decrease ${escapeHtml(label)} speed">−</button>
+          <span class="setting">${escapeHtml(setting)}</span>
+          <button type="button" class="speed-btn" data-act="stage-speed" data-ex="${exercise.id}" data-i="${i}" data-dir="1" aria-label="Increase ${escapeHtml(label)} speed">+</button>
+        </span>
+      </div>`;
     }).join("");
     return `<div class="stages">
       <div class="stage-setbar">
@@ -715,9 +757,11 @@
     const exercise = found.exercise;
     const items = (exercise.history || []).map((h) => {
       const rows = h.sets.map((s, i) => {
-        const right = exercise.stages
-          ? "Completed"
-          : `${s.reps} reps${s.weight ? " × " + s.weight + " lb" : " · BW"}`;
+        const right = (s.stages && s.stages.length)
+          ? s.stages.map((st) => (st.label || "Stage") + (st.setting ? " @ " + st.setting : "")).join(" · ")
+          : (exercise.stages
+            ? "Completed"
+            : `${s.reps} reps${s.weight ? " × " + s.weight + " lb" : " · BW"}`);
         return `<div class="hist-set"><span>Set ${i + 1}</span><span>${escapeHtml(right)}</span></div>`;
       }).join("");
       return `<div class="hist-item"><h3>${escapeHtml(formatLongDate(h.date))}</h3>${rows || "<div class='hist-set'>No sets</div>"}</div>`;
@@ -878,6 +922,20 @@
     else timerStart();
   }
 
+  function adjustStageSpeed(exerciseId, stageIndex, dir) {
+    const found = findExercise(exerciseId);
+    if (!found || !found.exercise.stages || !found.exercise.stages[stageIndex]) return;
+    const stage = found.exercise.stages[stageIndex];
+    const next = clampSpeed(stageSpeedNumber(stage.setting) + dir * SPEED_STEP);
+    const text = formatSpeed(next);
+    stage.setting = text;
+    if (timer.stage && timer.stage.exerciseId === exerciseId && timer.stage.stageIndex === stageIndex) {
+      timer.stage.setting = text;
+    }
+    persist();
+    render();
+  }
+
   function startStageTimer(exerciseId, setIndex, stageIndex) {
     const found = findExercise(exerciseId);
     if (!found || !found.exercise.stages) return;
@@ -926,6 +984,8 @@
     }
     set.stagesDone[ctx.stageIndex] = true;
     set.done = set.stagesDone.length ? set.stagesDone.every(Boolean) : set.done;
+    set.stageSpeeds = Array.isArray(set.stageSpeeds) ? set.stageSpeeds.slice() : [];
+    set.stageSpeeds[ctx.stageIndex] = found.exercise.stages[ctx.stageIndex].setting || "";
     writeWorkingSets(found.exercise, sets);
   }
 
@@ -976,6 +1036,7 @@
     const sets = workingSets(found.exercise).map((s) => ({ ...s, stagesDone: (s.stagesDone || []).slice() }));
     if (!sets[setIndex]) return;
     sets[setIndex].stagesDone = (found.exercise.stages || []).map(() => false);
+    sets[setIndex].stageSpeeds = [];
     sets[setIndex].done = false;
     writeWorkingSets(found.exercise, sets);
     if (timer.stage && timer.stage.exerciseId === exerciseId && timer.stage.setIndex === setIndex) {
@@ -1082,7 +1143,20 @@
     const t = e.target.closest("[data-act]");
     if (!t) return;
     const act = t.dataset.act;
+    if (act === "stage-speed") {
+      e.stopPropagation();
+      e.preventDefault();
+    }
     handleAction(act, t, e);
+  });
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    if (e.target.closest("[data-act='stage-speed']")) return;
+    const t = e.target.closest("[data-act='tap-stage']");
+    if (!t) return;
+    e.preventDefault();
+    handleAction("tap-stage", t, e);
   });
 
   document.addEventListener("input", (e) => {
@@ -1325,6 +1399,10 @@
         timer.justFinished = false;
       }
       render();
+      return;
+    }
+    if (act === "stage-speed") {
+      adjustStageSpeed(t.dataset.ex, Number(t.dataset.i), Number(t.dataset.dir));
       return;
     }
     if (act === "tap-stage") {
