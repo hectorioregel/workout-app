@@ -498,6 +498,33 @@ await page.waitForSelector('.stage-btn[data-i="0"] .setting');
 const after = await page.$eval('.stage-btn[data-i="0"] .setting', (el) => el.textContent.trim());
 ok("adjusted speed survives reload", after === "@ 3.6", after);
 
+await page.evaluate(() => { location.hash = "#/g/day-a"; });
+await page.waitForSelector(".ex-card .set-btn");
+for (let i = 0; i < 3; i++) {
+  const btns = await page.$$(".ex-card .set-btn");
+  await btns[i].tap();
+  await page.waitForSelector(".adjust");
+  for (let n = 0; n < 2; n++) {
+    const plus = (await page.$$(".adjust .stepper button"))[1];
+    await plus.tap();
+  }
+}
+await tapAct("save-workout");
+await page.waitForFunction(() => /saved/i.test(document.getElementById("toast")?.textContent || ""));
+await page.reload({ waitUntil: "networkidle0" });
+await page.waitForSelector(".overload");
+const bumpedLoad = await page.evaluate(() => {
+  const d = JSON.parse(localStorage.getItem("hector-workout-v1"));
+  const squat = d.groups.find((g) => g.id === "day-a").exercises.find((e) => e.id === "a-squat");
+  const text = document.body.innerText;
+  return {
+    weight: squat.sets[0].weight,
+    hint: squat.overload === true && /Weight up next time/.test(text),
+    used: squat.history[0].sets.every((s) => s.weight === 50 && s.reps >= 12)
+  };
+});
+ok("top of the rep range raises next weight by 5 lb", bumpedLoad.weight === 55 && bumpedLoad.hint && bumpedLoad.used, JSON.stringify(bumpedLoad));
+
 await page.evaluate(() => {
   localStorage.setItem("hector-workout-v1", JSON.stringify({
     version: 1,

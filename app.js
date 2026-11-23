@@ -393,10 +393,12 @@
         });
         saved += 1;
       }
+      const earned = earnedOverload(found.exercise, completed);
       found.exercise.sets = sets.map((s, i) => ({
         targetReps: found.exercise.stages ? (found.exercise.sets[i]?.targetReps || 0) : s.reps,
-        weight: s.weight
+        weight: (s.weight || 0) + (earned ? found.exercise.weightStep : 0)
       }));
+      found.exercise.overload = earned ? true : (completed.length ? false : !!found.exercise.overload);
       if (sets.some((s) => s.weight > 0)) found.exercise.isBodyweight = false;
     }
     data.activeSession = null;
@@ -404,6 +406,12 @@
     if (!silent && saved) toast("Workout saved");
     else if (!silent) toast("Nothing to save yet");
     return saved;
+  }
+
+  function earnedOverload(exercise, completed) {
+    if (!exercise.repMax || !exercise.weightStep) return false;
+    if (!completed.length || completed.length < (exercise.sets || []).length) return false;
+    return completed.every((s) => s.reps >= exercise.repMax);
   }
 
   function clearSession() {
@@ -659,6 +667,7 @@
       </div>
       <p class="ex-last">${escapeHtml(targetLine(exercise, defaultWeight))}${escapeHtml(lastLine)}</p>
       ${exercise.notes ? `<p class="ex-note">${escapeHtml(exercise.notes)}</p>` : ""}
+      ${exercise.overload ? `<p class="overload">Weight up next time</p>` : ""}
       ${stages}
       <div class="sets">${setBtns}</div>
       ${adjust}

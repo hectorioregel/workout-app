@@ -213,6 +213,12 @@ textarea { resize: vertical; min-height: 80px; }
   font-size: 13px;
   font-weight: 650;
 }
+.overload {
+  margin: 6px 0 0;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 750;
+}
 .group-card.run .group-mark { background: rgba(92, 255, 196, 0.14); color: #5CFFC4; }
 
 .group-meta { flex: 1; min-width: 0; }
