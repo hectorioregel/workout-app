@@ -533,13 +533,6 @@
          </button>`
       : "";
 
-    const runBanner = track.status !== "idle" ? `<button class="session-banner run-banner" data-act="open-run">
-           <div style="flex:1">
-             <strong>Run ${track.status === "paused" ? "paused" : "in progress"}</strong>
-             <span>${escapeHtml(runSummaryLine())} · tap to return</span>
-           </div>
-         </button>` : "";
-
     const card = (g) => {
       const progress = groupProgress(g);
       const sub = progress.done
@@ -580,7 +573,6 @@
       </header>
       <div class="page">
         ${banner}
-        ${runBanner}
         ${current}
         ${previousHtml}
         ${renderRunCard()}
@@ -1567,7 +1559,7 @@
       render();
       return;
     }
-    if (act === "start-run") { startRun(); return; }
+    if (act === "start-run") { return; }
     if (act === "pause-run") { pauseRun(); return; }
     if (act === "resume-run") { resumeRun(); return; }
     if (act === "finish-run") { finishRun(); return; }
@@ -1716,63 +1708,31 @@
   }
 
   function renderRunCard() {
-    const n = (data.runs || []).length;
-    const live = track.status !== "idle";
-    const sub = live
-      ? (track.status === "paused" ? "Paused · " : "Live · ") + runSummaryLine()
-      : (n ? (n + " saved run" + (n === 1 ? "" : "s")) : "Track a walk or run outside");
+    const runs = data.runs || [];
+    if (!runs.length) return "";
+    const n = runs.length;
     return `<button class="group-card run" data-act="open-run">
       <div class="group-mark">R</div>
       <div class="group-meta">
-        <h2>Outdoor Run</h2>
-        <p>${escapeHtml(sub)}</p>
+        <h2>Past runs</h2>
+        <p>${n} saved run${n === 1 ? "" : "s"}</p>
       </div>
       <div class="chev">›</div>
     </button>`;
   }
 
   function renderRun() {
-    const math = globalThis.RunMath;
-    const live = track.status !== "idle";
-    const stats = currentRunStats();
-    const elapsed = math.formatElapsed(currentElapsed());
-    const statusLbl = track.status === "paused" ? "Paused" : (track.status === "running" ? "Recording" : "Ready");
-    const gps = track.gpsError
-      ? `<div class="run-gps err" id="run-gps">${escapeHtml(track.gpsError)}</div>`
-      : `<div class="run-gps" id="run-gps">${track.waitingGps && live ? "Waiting for GPS…" : (live ? statusLbl : "")}</div>`;
-    const controls = !live
-      ? `<div class="row-actions" style="position:static;background:none;padding:0;border:0">
-           <button class="btn primary" data-act="start-run">Start run</button>
-         </div>`
-      : `<div class="row-actions" style="position:static;background:none;padding:0;border:0">
-           ${track.status === "paused"
-             ? `<button class="btn primary" data-act="resume-run">Resume</button>`
-             : `<button class="btn" data-act="pause-run">Pause</button>`}
-           <button class="btn danger" data-act="finish-run">Finish</button>
-         </div>`;
-    const runs = (data.runs || []);
-    const history = (!live && runs.length)
-      ? `<h2 style="margin:22px 0 10px;font-size:16px;letter-spacing:-0.02em">Past runs</h2>
-         <div class="run-list">${runs.map(runListItem).join("")}</div>`
-      : (!live ? `<p class="empty">No saved runs yet.</p>` : "");
+    const runs = data.runs || [];
+    const history = runs.length
+      ? `<div class="run-list">${runs.map(runListItem).join("")}</div>`
+      : `<p class="empty">No saved runs.</p>`;
     return `
       <header class="topbar">
         <button class="icon-btn" data-act="go-home" aria-label="Back">${iconBack()}</button>
-        <h1>Outdoor Run</h1>
+        <h1>Past runs</h1>
         ${timerButtonHtml()}
       </header>
-      <div class="page run-page"${live ? " id='run-live'" : ""}>
-        <div class="run-note"><strong>Keep the screen on</strong> while tracking. GPS only works with the screen awake — this app does not track in the background.</div>
-        <div id="run-map" class="run-map" role="img" aria-label="Run route map"></div>
-        <div class="run-stats">
-          <div class="run-stat wide"><div class="lbl">Time</div><div class="val" id="run-elapsed">${elapsed}</div></div>
-          <div class="run-stat"><div class="lbl">Distance</div><div class="val" id="run-distance">${math.formatMiles(stats.miles)}</div></div>
-          <div class="run-stat"><div class="lbl">Current pace</div><div class="val" id="run-pace">${math.formatPace(stats.currentPaceSecPerMile)}</div></div>
-          <div class="run-stat"><div class="lbl">Avg pace</div><div class="val" id="run-avg-pace">${math.formatPace(stats.avgPaceSecPerMile)}</div></div>
-          <div class="run-stat"><div class="lbl">Avg speed</div><div class="val" id="run-avg-speed">${math.formatMph(stats.avgSpeedMph)}</div></div>
-        </div>
-        ${gps}
-        ${controls}
+      <div class="page run-page">
         ${history}
       </div>`;
   }

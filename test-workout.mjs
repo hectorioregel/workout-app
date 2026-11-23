@@ -276,126 +276,39 @@ const sprintTimer = await readTimer();
 ok("tapping sprint starts 1:00 timer", /^(1:00|0:5\d)$/.test(sprintTimer.time), JSON.stringify(sprintTimer));
 ok("sprint timer shows name and speed", sprintTimer.title === "Sprint" && /@\s*10\.5/.test(sprintTimer.sub), JSON.stringify(sprintTimer));
 
-// Outdoor run — mocked GPS
 await page.$eval('[data-act="timer-toggle"]', (el) => el.click()).catch(() => {});
 if (await page.$(".backdrop")) {
   await page.$eval(".backdrop", (el) => el.click());
   await page.waitForFunction(() => !document.querySelector(".sheet"));
 }
-if (await page.$("[data-act='go-home']")) {
-  await tapAct("go-home");
-  await page.waitForSelector("[data-act='open-run']");
-}
+if (await page.$("[data-act='go-home']")) await tapAct("go-home");
+await page.waitForSelector("[data-act='export']");
+ok("home has no outdoor run card", !(await page.$("[data-act='open-run']")) && !(await page.$("[data-act='start-run']")));
 
 await page.evaluate(() => {
-  const origin = 1_700_000_000_000;
-  let now = origin;
-  Date.now = () => now;
-  window.__advance = (ms) => { now += ms; };
-  const watchers = new Map();
-  let seq = 1;
-  let current = { lat: 34, lng: -118, accuracy: 8, t: now };
-  function emit() {
-    const pos = {
-      coords: {
-        latitude: current.lat,
-        longitude: current.lng,
-        accuracy: current.accuracy,
-        altitude: null,
-        altitudeAccuracy: null,
-        heading: null,
-        speed: null
-      },
-      timestamp: current.t
-    };
-    for (const w of watchers.values()) w.success(pos);
-  }
-  window.__geo = {
-    set(p) {
-      current = Object.assign({}, current, p);
-      if (current.t == null) current.t = now;
-      emit();
-    }
-  };
-  navigator.geolocation.watchPosition = (success) => {
-    const id = seq++;
-    watchers.set(id, { success });
-    success({
-      coords: {
-        latitude: current.lat,
-        longitude: current.lng,
-        accuracy: current.accuracy,
-        altitude: null,
-        altitudeAccuracy: null,
-        heading: null,
-        speed: null
-      },
-      timestamp: current.t
-    });
-    return id;
-  };
-  navigator.geolocation.clearWatch = (id) => watchers.delete(id);
-});
-
-ok("outdoor run card on home", !!(await page.$("[data-act='open-run']")));
-await tapAct("open-run");
-await page.waitForSelector("[data-act='start-run']");
-const runIdle = await page.evaluate(() => document.body.innerText);
-ok("run screen reminds to keep the screen on", /keep the screen on/i.test(runIdle));
-
-await tapAct("start-run");
-await page.waitForSelector("#run-live");
-await page.waitForSelector("#run-map");
-
-const dlat = (RunMath.METERS_PER_MILE / RunMath.EARTH_RADIUS_M) * (180 / Math.PI);
-await page.evaluate((dlat) => {
-  window.__advance(8 * 60 * 1000);
-  window.__geo.set({ lat: 34 + dlat, lng: -118, accuracy: 8, t: Date.now() });
-}, dlat);
-
-await page.waitForFunction(() => {
-  const dist = document.getElementById("run-distance")?.textContent;
-  const time = document.getElementById("run-elapsed")?.textContent;
-  const speed = document.getElementById("run-avg-speed")?.textContent;
-  return dist === "1.00 mi" && time === "8:00" && speed === "7.5 mph";
-}, { timeout: 4000 });
-
-const liveStats = await page.evaluate(() => ({
-  time: document.getElementById("run-elapsed")?.textContent,
-  dist: document.getElementById("run-distance")?.textContent,
-  pace: document.getElementById("run-avg-pace")?.textContent,
-  speed: document.getElementById("run-avg-speed")?.textContent,
-  current: document.getElementById("run-pace")?.textContent
-}));
-ok("live run shows 1.00 mi in 8:00 at 7.5 mph", liveStats.dist === "1.00 mi" && liveStats.time === "8:00" && liveStats.speed === "7.5 mph", JSON.stringify(liveStats));
-ok("live run shows 8:00 /mi average pace", liveStats.pace === "8:00 /mi", JSON.stringify(liveStats));
-
-await page.evaluate(() => { if (window.__trackInvalidate) window.__trackInvalidate(); });
-await new Promise((r) => setTimeout(r, 2500));
-await page.screenshot({ path: path.join(SCREEN, "05-run-live.png") });
-
-await tapAct("finish-run");
-await page.waitForSelector("[data-act='confirm-ok']");
-await tapAct("confirm-ok");
-await page.waitForSelector("#run-detail");
-await page.$eval("#toast", (el) => { el.hidden = true; }).catch(() => {});
-await new Promise((r) => setTimeout(r, 2500));
-const detail = await page.evaluate(() => document.body.innerText);
-ok("run detail shows distance, time, and averages", /1\.00 mi/.test(detail) && /8:00/.test(detail) && /7\.5 mph/.test(detail) && /8:00 \/mi/.test(detail), detail.replace(/\s+/g, " ").slice(0, 220));
-
-await page.screenshot({ path: path.join(SCREEN, "06-run-detail.png") });
-
-const stored = await page.evaluate(() => {
   const d = JSON.parse(localStorage.getItem("hector-workout-v1"));
-  return {
-    runCount: (d.runs || []).length,
-    miles: d.runs && d.runs[0] && d.runs[0].distanceMiles,
-    duration: d.runs && d.runs[0] && d.runs[0].durationMs,
-    hasPath: !!(d.runs && d.runs[0] && d.runs[0].path && d.runs[0].path.length >= 2),
-    groups: Array.isArray(d.groups) && d.groups.length === 3
-  };
+  d.runs = [{
+    id: "saved-run",
+    date: "2026-11-01",
+    durationMs: 8 * 60 * 1000,
+    distanceMiles: 1,
+    avgSpeedMph: 7.5,
+    avgPaceSecPerMile: 480,
+    path: [{ lat: 34, lng: -118, t: 1 }, { lat: 34.01, lng: -118, t: 2 }]
+  }];
+  localStorage.setItem("hector-workout-v1", JSON.stringify(d));
 });
-ok("finished run saved in localStorage", stored.runCount === 1 && stored.miles > 0.99 && stored.miles < 1.01 && stored.duration === 8 * 60 * 1000 && stored.hasPath && stored.groups, JSON.stringify(stored));
+await page.reload({ waitUntil: "networkidle0" });
+await page.waitForSelector("[data-act='open-run']");
+const kept = await page.evaluate(() => {
+  const d = JSON.parse(localStorage.getItem("hector-workout-v1"));
+  return { count: (d.runs || []).length, miles: d.runs[0] && d.runs[0].distanceMiles, groups: d.groups.length };
+});
+ok("stored run is kept", kept.count === 1 && kept.miles === 1 && kept.groups === 3, JSON.stringify(kept));
+await tapAct("open-run");
+await page.waitForSelector("[data-act='open-run-detail']");
+const past = await page.evaluate(() => document.body.innerText);
+ok("past run shows in history", /1\.00 mi/.test(past) && /8:00/.test(past) && !/Start run/.test(past), past.replace(/\s+/g, " ").slice(0, 180));
 
 await page.evaluate(() => { location.hash = "#/g/day-c"; });
 await page.waitForSelector('.stage-btn[data-i="0"] [data-dir="1"]');
