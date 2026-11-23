@@ -401,11 +401,28 @@
       found.exercise.overload = earned ? true : (completed.length ? false : !!found.exercise.overload);
       if (sets.some((s) => s.weight > 0)) found.exercise.isBodyweight = false;
     }
+    const mobility = (data.activeSession && data.activeSession.mobility) || {};
+    data.mobilityLog = data.mobilityLog || [];
+    let loggedMobility = false;
+    for (const [groupId, on] of Object.entries(mobility)) {
+      if (!on) continue;
+      if (!data.mobilityLog.some((m) => m.groupId === groupId && m.date === date)) {
+        data.mobilityLog.push({ date, groupId });
+        loggedMobility = true;
+      }
+    }
     data.activeSession = null;
     persist();
-    if (!silent && saved) toast("Workout saved");
+    if (!silent && (saved || loggedMobility)) toast("Workout saved");
     else if (!silent) toast("Nothing to save yet");
     return saved;
+  }
+
+  function mobilityChecked(groupId) {
+    const today = todayISO();
+    if ((data.mobilityLog || []).some((m) => m.groupId === groupId && m.date === today)) return true;
+    const session = data.activeSession && data.activeSession.mobility;
+    return !!(session && session[groupId]);
   }
 
   function earnedOverload(exercise, completed) {
@@ -602,7 +619,8 @@
         ${timerButtonHtml()}
       </header>
       <div class="page group-page">
-        ${group.archived ? "" : `<p class="day-rest">Rest 60-90 s</p>`}
+        ${group.archived ? "" : `<p class="day-rest">Rest 60-90 s</p>
+        <label class="warmup"><input type="checkbox" data-act="toggle-mobility" ${mobilityChecked(group.id) ? "checked" : ""}> Mobility warm-up (3-5 min)</label>`}
         ${cards}
         <button class="add-ex" data-act="add-exercise" data-group="${escapeHtml(group.id)}">+ Add exercise</button>
         <div class="row-actions">
@@ -1231,6 +1249,13 @@
   document.addEventListener("change", (e) => {
     const t = e.target.closest("[data-act]");
     if (!t) return;
+    if (t.dataset.act === "toggle-mobility") {
+      const session = ensureSession();
+      session.mobility = session.mobility || {};
+      session.mobility[ui.groupId] = !!t.checked;
+      persist();
+      return;
+    }
     if (t.dataset.act === "draft-stages-toggle") {
       ui.sheet.draft.useStages = t.checked;
       if (t.checked && (!ui.sheet.draft.stages || !ui.sheet.draft.stages.length)) {

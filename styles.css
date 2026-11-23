@@ -219,6 +219,15 @@ textarea { resize: vertical; min-height: 80px; }
   font-size: 13px;
   font-weight: 750;
 }
+.warmup {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 14px;
+  font-size: 15px;
+  font-weight: 650;
+}
+.warmup input { width: 22px; height: 22px; accent-color: var(--accent); }
 .group-card.run .group-mark { background: rgba(92, 255, 196, 0.14); color: #5CFFC4; }
 
 .group-meta { flex: 1; min-width: 0; }

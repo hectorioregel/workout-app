@@ -525,6 +525,18 @@ const bumpedLoad = await page.evaluate(() => {
 });
 ok("top of the rep range raises next weight by 5 lb", bumpedLoad.weight === 55 && bumpedLoad.hint && bumpedLoad.used, JSON.stringify(bumpedLoad));
 
+await page.$eval("[data-act='toggle-mobility']", (el) => el.click());
+await tapAct("save-workout");
+await page.waitForFunction(() => /saved/i.test(document.getElementById("toast")?.textContent || ""));
+await page.reload({ waitUntil: "networkidle0" });
+const mobility = await page.evaluate(() => {
+  const d = JSON.parse(localStorage.getItem("hector-workout-v1"));
+  const logged = (d.mobilityLog || []).some((m) => m.groupId === "day-a");
+  const checked = document.querySelector("[data-act='toggle-mobility']")?.checked;
+  return { logged, checked };
+});
+ok("mobility warm-up is logged and stays checked", mobility.logged && mobility.checked, JSON.stringify(mobility));
+
 await page.evaluate(() => {
   localStorage.setItem("hector-workout-v1", JSON.stringify({
     version: 1,
