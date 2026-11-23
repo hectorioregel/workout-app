@@ -196,9 +196,23 @@ textarea { resize: vertical; min-height: 80px; }
   flex-shrink: 0;
 }
 
-.group-card.arms .group-mark { background: var(--accent-dim); color: var(--accent); }
-.group-card.abs .group-mark { background: rgba(255, 138, 61, 0.16); color: var(--orange); }
-.group-card.legs .group-mark { background: rgba(92, 225, 255, 0.14); color: var(--cyan); }
+.group-card.arms .group-mark, .group-card.day-a .group-mark { background: var(--accent-dim); color: var(--accent); }
+.group-card.abs .group-mark, .group-card.day-b .group-mark { background: rgba(255, 138, 61, 0.16); color: var(--orange); }
+.group-card.legs .group-mark, .group-card.day-c .group-mark { background: rgba(92, 225, 255, 0.14); color: var(--cyan); }
+.prev-head {
+  margin: 18px 4px 8px;
+  font-size: 12px;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.day-rest {
+  margin: 0 0 12px;
+  color: var(--text-dim);
+  font-size: 13px;
+  font-weight: 650;
+}
 .group-card.run .group-mark { background: rgba(92, 255, 196, 0.14); color: #5CFFC4; }
 
 .group-meta { flex: 1; min-width: 0; }

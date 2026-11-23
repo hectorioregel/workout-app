@@ -75,105 +75,92 @@
     return Array.from({ length: count }, () => ({ targetReps: reps, weight }));
   }
 
-  function defaultData() {
-    return {
-      version: 1,
-      groups: [
-        {
-          id: "arms",
-          name: "Arms",
-          exercises: [
-            ex("Push up", { bodyweight: true, sets: 3, reps: 23 }),
-            ex("Chest press", { weight: 45, note: "blue lever adjusted", sets: 2, reps: 18 }),
-            ex("Pull weight to chest", { weight: 45, note: "blue lever adjusted", sets: 2, reps: 13 }),
-            ex("Bicep curl", { weight: 35, note: "blue lever adjusted", sets: 2, reps: 23 }),
-            ex("Chest wings", { weight: 25, note: "blue lever adjusted", sets: 2, reps: 25 }),
-            ex("Chest weight push up", { weight: 25, note: "blue lever adjusted", sets: 2, reps: 35 }),
-            ex("2-handed tricep curl", { weight: 45, note: "blue lever adjusted", sets: 2, reps: 22 })
-          ]
-        },
-        {
-          id: "abs",
-          name: "Abs",
-          exercises: [
-            ex("Hip thrust", { weight: 55, note: "blue lever adjusted", sets: 2, reps: 55 }),
-            ex("Crunches with feet in air", { bodyweight: true, sets: 2, reps: 55 }),
-            ex("Left/right crunches with feet in air", {
-              bodyweight: true,
-              sets: 2,
-              reps: 50,
-              notes: "Each rep is a left and a right"
-            }),
-            ex("Leg raise V crunch", { bodyweight: true, sets: 2, reps: 30 }),
-            ex("Leg raise circles clockwise/counterclockwise", {
-              bodyweight: true,
-              sets: 2,
-              reps: 30,
-              notes: "30 reps each direction"
-            })
-          ]
-        },
-        {
-          id: "legs",
-          name: "Legs",
-          exercises: [
-            {
-              id: uid(),
-              name: "Treadmill run",
-              equipmentNote: "",
-              notes: "",
-              isBodyweight: true,
-              sets: [
-                { targetReps: 0, weight: 0 },
-                { targetReps: 0, weight: 0 }
-              ],
-              stages: [
-                { label: "Walk", duration: "3 min", setting: "3.5" },
-                { label: "Jog", duration: "4 min", setting: "7.1" },
-                { label: "Sprint", duration: "1 min", setting: "10.5" }
-              ],
-              history: []
-            },
-            {
-              id: uid(),
-              name: "Leg machine",
-              equipmentNote: "lever adjusted",
-              notes: "",
-              isBodyweight: false,
-              sets: [
-                { targetReps: 19, weight: 130 },
-                { targetReps: 17, weight: 130 },
-                { targetReps: 15, weight: 130 }
-              ],
-              stages: null,
-              history: []
-            },
-            ex("Calf raise", {
-              weight: 20,
-              note: "both 20 lb weights on shoulders",
-              sets: 3,
-              reps: 35
-            })
-          ]
-        }
-      ],
-      activeSession: null,
-      installTipDismissed: false,
-      runs: []
-    };
-  }
-
   function ex(name, opts) {
     const weight = opts.bodyweight ? 0 : (opts.weight || 0);
+    const reps = opts.reps != null ? opts.reps : (opts.repMin || 0);
     return {
-      id: uid(),
+      id: opts.id || uid(),
       name,
       equipmentNote: opts.note || "",
       notes: opts.notes || "",
       isBodyweight: !!opts.bodyweight,
-      sets: setsOf(opts.sets, opts.reps, weight),
-      stages: null,
-      history: []
+      sets: setsOf(opts.sets || 1, reps, weight),
+      stages: opts.stages || null,
+      history: opts.history || [],
+      repMin: opts.repMin || 0,
+      repMax: opts.repMax || 0,
+      weightStep: opts.step || 0,
+      logUnit: opts.unit || "reps"
+    };
+  }
+
+  function treadmillIntervals() {
+    return ex("Treadmill intervals", {
+      id: "c-treadmill",
+      bodyweight: true,
+      sets: 2,
+      reps: 0,
+      notes: "2 rounds",
+      stages: [
+        { label: "Walk", duration: "3 min", setting: "3.5" },
+        { label: "Jog", duration: "4 min", setting: "7.1" },
+        { label: "Sprint", duration: "1 min", setting: "10.5" }
+      ]
+    });
+  }
+
+  function phase1Groups() {
+    const db = (name, id, sets, repMin, repMax, weight, notes) =>
+      ex(name, { id, sets, repMin, repMax, reps: repMin, weight, step: 5, notes });
+    return [
+      {
+        id: "day-a",
+        name: "Day A",
+        mark: "A",
+        exercises: [
+          db("Goblet squat to box", "a-squat", 3, 10, 12, 50, "one 50 lb dumbbell"),
+          db("DB bench/floor press", "a-press", 3, 8, 12, 50, ""),
+          db("One-arm DB row", "a-row", 3, 10, 12, 45, "per side"),
+          ex("Leg curl (machine)", { id: "a-curl", sets: 3, repMin: 12, repMax: 15, reps: 12, weight: 150, step: 10 }),
+          ex("Plank", { id: "a-plank", bodyweight: true, sets: 3, repMin: 30, repMax: 45, reps: 30, unit: "sec", notes: "log seconds" })
+        ]
+      },
+      {
+        id: "day-b",
+        name: "Day B",
+        mark: "B",
+        exercises: [
+          db("DB Romanian deadlift", "b-rdl", 3, 10, 12, 45, ""),
+          db("Seated DB shoulder press", "b-press", 3, 8, 12, 30, ""),
+          ex("Push-ups", { id: "b-push", bodyweight: true, sets: 3, reps: 8, notes: "2 reps short of failure" }),
+          ex("Leg extension (machine)", { id: "b-ext", sets: 3, repMin: 12, repMax: 15, reps: 12, weight: 150, step: 10 }),
+          ex("Dead bug", { id: "b-bug", bodyweight: true, sets: 3, repMin: 10, repMax: 10, reps: 10, notes: "per side" })
+        ]
+      },
+      {
+        id: "day-c",
+        name: "Day C",
+        mark: "C",
+        exercises: [
+          db("DB hip thrust", "c-thrust", 3, 12, 15, 55, "one 55 lb dumbbell · 2 s squeeze"),
+          db("Incline DB press", "c-incline", 3, 8, 12, 45, ""),
+          db("Two-arm DB row", "c-row", 3, 10, 12, 40, ""),
+          db("Calf raise", "c-calf", 3, 15, 20, 30, "30 lb each hand · 1 s pause"),
+          db("DB curl", "c-curl", 2, 10, 12, 40, ""),
+          db("Overhead triceps extension", "c-tri", 2, 10, 12, 45, "one 45 lb dumbbell"),
+          treadmillIntervals()
+        ]
+      }
+    ];
+  }
+
+  function defaultData() {
+    return {
+      version: 1,
+      groups: phase1Groups(),
+      activeSession: null,
+      installTipDismissed: false,
+      runs: []
     };
   }
 
@@ -199,7 +186,16 @@
       parsed.runs = [];
       changed = true;
     }
-    for (const group of parsed.groups || []) {
+    parsed.groups = parsed.groups || [];
+    if (!parsed.groups.some((g) => g.id === "day-a")) {
+      parsed.groups = phase1Groups().concat(parsed.groups);
+      changed = true;
+    }
+    for (const group of parsed.groups) {
+      if ((group.id === "arms" || group.id === "abs" || group.id === "legs") && !group.archived) {
+        group.archived = true;
+        changed = true;
+      }
       for (const exercise of group.exercises || []) {
         if (exercise && exercise.name === "Leg machine up") {
           exercise.name = "Leg machine";
@@ -422,6 +418,21 @@
     return weight + " lb";
   }
 
+  function targetLine(exercise, weight) {
+    const unit = exercise.logUnit === "sec" ? " s" : "";
+    let range = "";
+    if (exercise.repMax) {
+      range = exercise.repMin && exercise.repMin !== exercise.repMax
+        ? exercise.repMin + "–" + exercise.repMax + unit
+        : String(exercise.repMax) + unit;
+    }
+    const bits = [];
+    if (exercise.logUnit !== "sec") bits.push(weightLabel(weight, exercise.isBodyweight));
+    if (range) bits.push(range);
+    if (exercise.equipmentNote) bits.push(exercise.equipmentNote);
+    return bits.join(" · ");
+  }
+
   function lastUsed(exercise) {
     if (exercise.history && exercise.history[0]) {
       const last = exercise.history[0];
@@ -504,13 +515,13 @@
            </div>
          </button>` : "";
 
-    const cards = data.groups.map((g) => {
+    const card = (g) => {
       const progress = groupProgress(g);
       const sub = progress.done
         ? `${progress.done}/${progress.total} sets today · ${g.exercises.length} exercises`
         : `${g.exercises.length} exercises`;
-      const letter = g.name[0];
-      return `<button class="group-card ${escapeHtml(g.id)}" data-act="open-group" data-id="${escapeHtml(g.id)}">
+      const letter = g.mark || g.name[0];
+      return `<button class="group-card ${escapeHtml(g.id)}${g.archived ? " archived" : ""}" data-act="open-group" data-id="${escapeHtml(g.id)}">
         <div class="group-mark">${escapeHtml(letter)}</div>
         <div class="group-meta">
           <h2>${escapeHtml(g.name)}</h2>
@@ -518,7 +529,12 @@
         </div>
         <div class="chev">›</div>
       </button>`;
-    }).join("");
+    };
+    const current = data.groups.filter((g) => !g.archived).map(card).join("");
+    const previous = data.groups.filter((g) => g.archived);
+    const previousHtml = previous.length
+      ? `<h2 class="prev-head">Previous plan</h2>${previous.map(card).join("")}`
+      : "";
 
     const tip = data.installTipDismissed ? "" : `
       <div class="tip install-tip">
@@ -540,7 +556,8 @@
       <div class="page">
         ${banner}
         ${runBanner}
-        ${cards}
+        ${current}
+        ${previousHtml}
         ${renderRunCard()}
         <div class="home-actions">
           <button class="btn" data-act="export">Export</button>
@@ -577,6 +594,7 @@
         ${timerButtonHtml()}
       </header>
       <div class="page group-page">
+        ${group.archived ? "" : `<p class="day-rest">Rest 60-90 s</p>`}
         ${cards}
         <button class="add-ex" data-act="add-exercise" data-group="${escapeHtml(group.id)}">+ Add exercise</button>
         <div class="row-actions">
@@ -592,8 +610,11 @@
       ? ui.selected.setIndex
       : null;
     const last = lastUsed(exercise);
-    const lastLine = last ? ` · Last ${formatLongDate(last.date)}` : "";
+    const lastLine = last
+      ? ` · Last ${last.reps.join("/")}${exercise.logUnit === "sec" ? " s" : "×" + (last.weights[0] ? last.weights[0] + " lb" : "BW")}`
+      : "";
     const defaultWeight = exercise.sets[0] ? exercise.sets[0].weight : 0;
+    const isSec = exercise.logUnit === "sec";
     const isTimed = !!(exercise.stages && exercise.stages.length);
     const setIndex = isTimed ? currentSetIndex(exercise) : selected;
     const stages = isTimed ? renderStages(exercise, sets, setIndex) : "";
@@ -601,8 +622,8 @@
       const cls = ["set-btn"];
       if (s.done) cls.push("done");
       if (selected === i) cls.push("selected");
-      const reps = String(s.reps);
-      const wt = s.weight ? s.weight + " lb" : "BW";
+      const reps = isSec ? s.reps + "s" : String(s.reps);
+      const wt = isSec ? "time" : (s.weight ? s.weight + " lb" : "BW");
       return `<button class="${cls.join(" ")}" data-act="tap-set" data-ex="${exercise.id}" data-i="${i}">
         <span class="lbl">Set ${i + 1}</span>
         <span class="reps">${escapeHtml(reps)}</span>
@@ -615,7 +636,7 @@
     const adjust = showAdjust && cur ? `
       <div class="adjust${cur && (exercise.isBodyweight && cur.weight === 0) ? "" : ""}">
         <div class="stepper-wrap">
-          <div class="kind-lbl">Reps</div>
+          <div class="kind-lbl">${isSec ? "Seconds" : "Reps"}</div>
           <div class="stepper">
             <button data-act="step" data-ex="${exercise.id}" data-i="${selected}" data-field="reps" data-dir="-1" aria-label="Decrease reps">−</button>
             <div class="val">${cur.reps}</div>
@@ -636,7 +657,7 @@
       <div class="ex-head">
         <h3>${escapeHtml(exercise.name)}</h3>
       </div>
-      <p class="ex-last">${escapeHtml(weightLabel(defaultWeight, exercise.isBodyweight))}${exercise.equipmentNote ? " · " + escapeHtml(exercise.equipmentNote) : ""}${escapeHtml(lastLine)}</p>
+      <p class="ex-last">${escapeHtml(targetLine(exercise, defaultWeight))}${escapeHtml(lastLine)}</p>
       ${exercise.notes ? `<p class="ex-note">${escapeHtml(exercise.notes)}</p>` : ""}
       ${stages}
       <div class="sets">${setBtns}</div>
@@ -1304,7 +1325,7 @@
       const sets = workingSets(found.exercise).map((s) => ({ ...s }));
       if (field === "reps") sets[i].reps = Math.max(0, sets[i].reps + dir);
       if (field === "weight") {
-        const step = WEIGHT_STEP;
+        const step = found.exercise.weightStep || WEIGHT_STEP;
         sets[i].weight = Math.max(0, sets[i].weight + dir * step);
       }
       ui.selected = { exerciseId: id, setIndex: i };

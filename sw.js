@@ -1,13 +1,13 @@
-const CACHE = "workout-v6";
-const VER = "6";
+const CACHE = "workout-v7";
+const VER = "7";
 const ASSETS = [
-  { url: "./index.html?v=6", keys: ["./", "./index.html", "./index.html?v=6"] },
-  { url: "./styles.css?v=6", keys: ["./styles.css", "./styles.css?v=6"] },
-  { url: "./app.js?v=6", keys: ["./app.js", "./app.js?v=6"] },
-  { url: "./run-math.js?v=6", keys: ["./run-math.js", "./run-math.js?v=6"] },
-  { url: "./vendor/leaflet/leaflet.css?v=6", keys: ["./vendor/leaflet/leaflet.css", "./vendor/leaflet/leaflet.css?v=6"] },
-  { url: "./vendor/leaflet/leaflet.js?v=6", keys: ["./vendor/leaflet/leaflet.js", "./vendor/leaflet/leaflet.js?v=6"] },
-  { url: "./manifest.json?v=6", keys: ["./manifest.json", "./manifest.json?v=6"] },
+  { url: "./index.html?v=7", keys: ["./", "./index.html", "./index.html?v=7"] },
+  { url: "./styles.css?v=7", keys: ["./styles.css", "./styles.css?v=7"] },
+  { url: "./app.js?v=7", keys: ["./app.js", "./app.js?v=7"] },
+  { url: "./run-math.js?v=7", keys: ["./run-math.js", "./run-math.js?v=7"] },
+  { url: "./vendor/leaflet/leaflet.css?v=7", keys: ["./vendor/leaflet/leaflet.css", "./vendor/leaflet/leaflet.css?v=7"] },
+  { url: "./vendor/leaflet/leaflet.js?v=7", keys: ["./vendor/leaflet/leaflet.js", "./vendor/leaflet/leaflet.js?v=7"] },
+  { url: "./manifest.json?v=7", keys: ["./manifest.json", "./manifest.json?v=7"] },
   { url: "./icons/icon-192.png", keys: ["./icons/icon-192.png"] },
   { url: "./icons/icon-512.png", keys: ["./icons/icon-512.png"] },
   { url: "./icons/icon-512-maskable.png", keys: ["./icons/icon-512-maskable.png"] },
