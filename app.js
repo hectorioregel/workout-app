@@ -138,7 +138,6 @@
           db("DB Romanian deadlift", "b-rdl", 3, 10, 12, 45, ""),
           db("DB hip thrust", "c-thrust", 3, 12, 15, 55, "one 55 lb dumbbell · 2 s squeeze"),
           db("Seated DB shoulder press", "b-press", 3, 8, 12, 30, ""),
-          db("Two-arm DB row", "c-row", 3, 10, 12, 40, ""),
           db("DB curl", "c-curl", 2, 10, 12, 40, ""),
           db("Calf raise", "c-calf", 3, 15, 20, 30, "30 lb each hand · 1 s pause"),
           ex("Dead bug", { id: "b-bug", bodyweight: true, sets: 3, repMin: 10, repMax: 10, reps: 10, notes: "per side" }),
@@ -162,7 +161,7 @@
   function defaultData() {
     return {
       version: 1,
-      planRev: 9,
+      planRev: 11,
       groups: phase1Groups(),
       activeSession: null,
       installTipDismissed: false,
@@ -200,9 +199,14 @@
       parsed.planRev = 9;
       changed = true;
     }
-    if (parsed.planRev !== 9) {
+    if (parsed.planRev == null || parsed.planRev < 9) {
       layoutPhase1(parsed);
       parsed.planRev = 9;
+      changed = true;
+    }
+    if (parsed.planRev < 11) {
+      retireTwoArmRow(parsed);
+      parsed.planRev = 11;
       changed = true;
     }
     if (applyWeightFloors(parsed)) changed = true;
@@ -254,12 +258,20 @@
       group.name = names[id];
       group.mark = id.slice(-1).toUpperCase();
       group.place = places[id];
-      group.exercises = order[id].map((eid) => tuneExercise(pulled[eid] || fresh[eid], parsed)).concat(leftovers);
+      group.exercises = order[id].map((eid) => tuneExercise(pulled[eid] || fresh[eid], parsed)).filter(Boolean).concat(leftovers);
     });
     const dayB = parsed.groups.find((g) => g.id === "day-b");
     const push = tuneExercise(pulled["b-push"] || fresh["b-push"], parsed);
     push.optionalHome = true;
     if (!dayB.exercises.some((e) => e.id === "b-push")) dayB.exercises.push(push);
+  }
+
+  function retireTwoArmRow(parsed) {
+    for (const group of parsed.groups || []) {
+      for (const exercise of group.exercises || []) {
+        if (exercise && exercise.id === "c-row") exercise.retired = true;
+      }
+    }
   }
 
   function applyWeightFloors(parsed) {
@@ -724,7 +736,7 @@
 
     const card = (g) => {
       const progress = groupProgress(g);
-      const count = g.exercises.filter((e) => !e.optionalHome).length;
+      const count = g.exercises.filter((e) => !e.optionalHome && !e.retired).length + (g.id === "day-b" ? 1 : 0);
       const sub = (g.place ? g.place + " · " : "") + (progress.done
         ? `${progress.done}/${progress.total} sets today · ${count} exercises`
         : `${count} exercises`);
@@ -779,6 +791,7 @@
     let total = 0;
     let done = 0;
     for (const exer of group.exercises) {
+      if (exer.optionalHome || exer.retired) continue;
       const sets = workingSets(exer);
       total += sets.length;
       done += sets.filter((s) => s.done).length;
@@ -793,7 +806,15 @@
       return renderHome();
     }
     const stats = sessionStats();
-    const main = group.exercises.filter((exercise) => !exercise.optionalHome);
+    const main = group.exercises.filter((exercise) => !exercise.optionalHome && !exercise.retired);
+    if (group.id === "day-b") {
+      const shared = findExercise("a-row");
+      if (shared && !main.some((exercise) => exercise.id === shared.exercise.id)) {
+        const at = main.findIndex((exercise) => exercise.id === "b-press");
+        main.splice(at + 1, 0, shared.exercise);
+      }
+    }
+    const earlier = group.exercises.filter((exercise) => exercise.retired && (exercise.history || []).length);
     const finishers = group.place === "Home"
       ? allExercises().map((row) => row.exercise).filter((exercise, index, list) =>
         exercise.optionalHome && list.findIndex((other) => other.id === exercise.id) === index)
@@ -801,6 +822,9 @@
     const cards = main.map((exercise) => renderExercise(exercise)).join("");
     const finisherHtml = finishers.length
       ? `<h2 class="prev-head">Optional</h2>${finishers.map((exercise) => renderExercise(exercise)).join("")}`
+      : "";
+    const earlierHtml = earlier.length
+      ? `<h2 class="prev-head">Earlier</h2>${earlier.map((exercise) => renderRetired(exercise)).join("")}`
       : "";
     return `
       <header class="topbar">
@@ -813,12 +837,23 @@
         <label class="warmup"><input type="checkbox" data-act="toggle-mobility" ${mobilityChecked(group.id) ? "checked" : ""}> Mobility warm-up (3-5 min)</label>`}
         ${cards}
         ${finisherHtml}
+        ${earlierHtml}
         <button class="add-ex" data-act="add-exercise" data-group="${escapeHtml(group.id)}">+ Add exercise</button>
         <div class="row-actions">
           ${stats.doneSets ? `<button class="btn" data-act="clear-session">Clear</button>` : ""}
           <button class="btn primary" data-act="save-workout">Save workout</button>
         </div>
       </div>`;
+  }
+
+  function renderRetired(exercise) {
+    return `<article class="ex-card" data-ex="${exercise.id}">
+      <div class="ex-head"><h3>${escapeHtml(exercise.name)}</h3></div>
+      <p class="ex-note">Kept so earlier sessions stay available.</p>
+      <div class="ex-tools">
+        <button class="linkish" data-act="open-history" data-ex="${exercise.id}">History</button>
+      </div>
+    </article>`;
   }
 
   function renderExercise(exercise) {

@@ -473,6 +473,18 @@ const bugSides = await page.evaluate(() => {
   return bug ? bug.querySelectorAll("[data-side]").length : -1;
 });
 ok("dead bug stays one number per set", bugSides === 0, String(bugSides));
+const dayBRow = await page.evaluate(() => {
+  const cards = [...document.querySelectorAll(".ex-card")].filter((el) => /One-arm DB row/.test(el.innerText));
+  const stored = JSON.parse(localStorage.getItem("hector-workout-v1"));
+  const ids = stored.groups.flatMap((g) => g.exercises).filter((e) => e.id === "a-row");
+  return {
+    cards: cards.length,
+    left: cards[0] ? cards[0].querySelectorAll('[data-side="L"]').length : 0,
+    copies: ids.length,
+    weight: ids[0] && ids[0].sets[0].weight
+  };
+});
+ok("day B uses the same one-arm row", dayBRow.cards === 1 && dayBRow.left === 3 && dayBRow.copies === 1 && dayBRow.weight === 55, JSON.stringify(dayBRow));
 await page.evaluate(() => { location.hash = "#/g/day-a"; });
 await page.waitForFunction(() => /Plank/.test(document.body.innerText));
 
@@ -563,6 +575,46 @@ const floors = await page.evaluate(() => {
   };
 });
 ok("weight floors raise only lower stored weights", floors.squat === 55 && floors.curl === 160 && floors.ext === 170 && floors.squatReps === "10-12" && floors.hist.reps === 11 && floors.hist.weight === 50 && floors.extHist === 170, JSON.stringify(floors));
+
+await page.evaluate(() => {
+  const d = JSON.parse(localStorage.getItem("hector-workout-v1"));
+  const dayB = d.groups.find((g) => g.id === "day-b");
+  dayB.exercises.push({
+    id: "c-row",
+    name: "Two-arm DB row",
+    sets: [
+      { targetReps: 10, weight: 40 },
+      { targetReps: 10, weight: 40 },
+      { targetReps: 10, weight: 40 }
+    ],
+    history: [{ id: "two-arm", date: "2026-11-23", sets: [{ reps: 12, weight: 40 }] }],
+    repMin: 10,
+    repMax: 12,
+    weightStep: 5
+  });
+  d.planRev = 9;
+  localStorage.setItem("hector-workout-v1", JSON.stringify(d));
+});
+await page.reload({ waitUntil: "networkidle0" });
+await page.evaluate(() => { location.hash = "#/g/day-b"; });
+await page.waitForSelector("[data-ex='c-row']");
+const twoArm = await page.evaluate(() => {
+  const d = JSON.parse(localStorage.getItem("hector-workout-v1"));
+  const rows = d.groups.flatMap((g) => g.exercises).filter((e) => e.id === "a-row" || e.id === "c-row");
+  const old = rows.find((e) => e.id === "c-row");
+  return {
+    retired: old.retired === true,
+    reps: old.history[0].sets[0].reps,
+    weight: old.history[0].sets[0].weight,
+    oneCopy: rows.filter((e) => e.id === "a-row").length
+  };
+});
+ok("two-arm row history is kept", twoArm.retired && twoArm.reps === 12 && twoArm.weight === 40 && twoArm.oneCopy === 1, JSON.stringify(twoArm));
+await page.$eval("[data-ex='c-row'] [data-act='open-history']", (el) => el.click());
+await page.waitForSelector(".hist-item");
+const twoArmHist = await page.evaluate(() => document.querySelector(".sheet")?.innerText || "");
+ok("two-arm history still opens", /Two-arm DB row/.test(twoArmHist) && /12/.test(twoArmHist), twoArmHist.replace(/\s+/g, " ").slice(0, 160));
+await page.$eval(".backdrop", (el) => el.click());
 
 await page.evaluate(() => {
   localStorage.setItem("hector-workout-v1", JSON.stringify({
