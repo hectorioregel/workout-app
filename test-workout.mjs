@@ -202,6 +202,36 @@ await page.waitForSelector(".stage-btn");
 const legs = await page.evaluate(() => document.body.innerText);
 ok("treadmill stages shown", /Walk/.test(legs) && /3 min/.test(legs) && /3\.5/.test(legs) && /Sprint/.test(legs) && /10\.5/.test(legs) && /Set 1 of 2/i.test(legs));
 ok("day C is the gym day", /Leg extension/.test(legs) && /Leg curl/.test(legs) && /Treadmill intervals/.test(legs) && !/DB hip thrust/.test(legs));
+const gymEnd = await page.evaluate(() => {
+  const cards = [...document.querySelectorAll(".ex-card h3")].map((el) => el.textContent.trim());
+  const superman = document.querySelector("[data-ex='c-superman']");
+  const push = document.querySelector("[data-ex='b-push']");
+  const stored = JSON.parse(localStorage.getItem("hector-workout-v1"));
+  const copies = stored.groups.flatMap((g) => g.exercises).filter((e) => e.id === "b-push");
+  return {
+    cards,
+    superText: superman ? superman.innerText : "",
+    pushText: push ? push.innerText : "",
+    sets: superman ? superman.querySelectorAll(".set-btn").length : 0,
+    pushSets: push ? push.querySelectorAll(".set-btn").length : 0,
+    copies: copies.length
+  };
+});
+ok("day C ends with supermans and the shared push-ups",
+  gymEnd.cards.indexOf("Treadmill intervals") >= 0
+  && gymEnd.cards.indexOf("Treadmill intervals") < gymEnd.cards.indexOf("Supermans")
+  && gymEnd.cards.indexOf("Supermans") === gymEnd.cards.length - 2
+  && gymEnd.cards.indexOf("Push-ups") === gymEnd.cards.length - 1
+  && gymEnd.sets === 3
+  && /10–12/.test(gymEnd.superText)
+  && /Body weight/.test(gymEnd.superText)
+  && /2 s hold at the top/.test(gymEnd.superText)
+  && /done at home after the gym/.test(gymEnd.superText)
+  && gymEnd.pushSets === 3
+  && /2 reps short of failure/.test(gymEnd.pushText)
+  && /done at home after the gym/.test(gymEnd.pushText)
+  && gymEnd.copies === 1,
+  JSON.stringify(gymEnd));
 
 await page.$eval("#toast", (el) => { el.hidden = true; });
 await page.screenshot({ path: path.join(SCREEN, "04-treadmill-stages.png") });
@@ -615,6 +645,32 @@ await page.waitForSelector(".hist-item");
 const twoArmHist = await page.evaluate(() => document.querySelector(".sheet")?.innerText || "");
 ok("two-arm history still opens", /Two-arm DB row/.test(twoArmHist) && /12/.test(twoArmHist), twoArmHist.replace(/\s+/g, " ").slice(0, 160));
 await page.$eval(".backdrop", (el) => el.click());
+
+await page.evaluate(() => {
+  const d = JSON.parse(localStorage.getItem("hector-workout-v1"));
+  const dayC = d.groups.find((g) => g.id === "day-c");
+  dayC.exercises = dayC.exercises.filter((e) => e.id !== "c-superman");
+  const push = d.groups.flatMap((g) => g.exercises).find((e) => e.id === "b-push");
+  push.history = [{ id: "pu", date: "2026-11-20", sets: [{ reps: 18, weight: 0 }] }];
+  d.planRev = 11;
+  localStorage.setItem("hector-workout-v1", JSON.stringify(d));
+});
+await page.reload({ waitUntil: "networkidle0" });
+await page.evaluate(() => { location.hash = "#/g/day-a"; });
+await page.waitForSelector("[data-ex='b-push']");
+const sharedPush = await page.evaluate(() => {
+  const d = JSON.parse(localStorage.getItem("hector-workout-v1"));
+  const pushes = d.groups.flatMap((g) => g.exercises).filter((e) => e.id === "b-push");
+  const superman = d.groups.flatMap((g) => g.exercises).find((e) => e.id === "c-superman");
+  return {
+    copies: pushes.length,
+    reps: pushes[0].history[0].sets[0].reps,
+    sets: superman && superman.sets.length,
+    homeNote: document.body.innerText.includes("2 reps short of failure"),
+    gymNoteOnHome: document.body.innerText.includes("done at home after the gym")
+  };
+});
+ok("gym finishers keep the shared push-up history", sharedPush.copies === 1 && sharedPush.reps === 18 && sharedPush.sets === 3 && sharedPush.homeNote && !sharedPush.gymNoteOnHome, JSON.stringify(sharedPush));
 
 await page.evaluate(() => {
   localStorage.setItem("hector-workout-v1", JSON.stringify({

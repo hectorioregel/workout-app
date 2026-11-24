@@ -152,7 +152,8 @@
         exercises: [
           ex("Leg extension (machine)", { id: "b-ext", sets: 3, repMin: 12, repMax: 15, reps: 12, weight: 160, step: 10 }),
           ex("Leg curl (machine)", { id: "a-curl", sets: 3, repMin: 12, repMax: 15, reps: 12, weight: 160, step: 10 }),
-          treadmillIntervals()
+          treadmillIntervals(),
+          ex("Supermans", { id: "c-superman", bodyweight: true, sets: 3, repMin: 10, repMax: 12, reps: 10, notes: "2 s hold at the top · done at home after the gym" })
         ]
       }
     ];
@@ -161,7 +162,7 @@
   function defaultData() {
     return {
       version: 1,
-      planRev: 11,
+      planRev: 12,
       groups: phase1Groups(),
       activeSession: null,
       installTipDismissed: false,
@@ -207,6 +208,11 @@
     if (parsed.planRev < 11) {
       retireTwoArmRow(parsed);
       parsed.planRev = 11;
+      changed = true;
+    }
+    if (parsed.planRev < 12) {
+      addGymFinishers(parsed);
+      parsed.planRev = 12;
       changed = true;
     }
     if (applyWeightFloors(parsed)) changed = true;
@@ -264,6 +270,15 @@
     const push = tuneExercise(pulled["b-push"] || fresh["b-push"], parsed);
     push.optionalHome = true;
     if (!dayB.exercises.some((e) => e.id === "b-push")) dayB.exercises.push(push);
+  }
+
+  function addGymFinishers(parsed) {
+    const dayC = (parsed.groups || []).find((group) => group.id === "day-c");
+    if (!dayC) return;
+    dayC.exercises = dayC.exercises || [];
+    if (dayC.exercises.some((exercise) => exercise && exercise.id === "c-superman")) return;
+    const fresh = phase1Groups().find((group) => group.id === "day-c").exercises.find((exercise) => exercise.id === "c-superman");
+    dayC.exercises.push(fresh);
   }
 
   function retireTwoArmRow(parsed) {
@@ -736,7 +751,9 @@
 
     const card = (g) => {
       const progress = groupProgress(g);
-      const count = g.exercises.filter((e) => !e.optionalHome && !e.retired).length + (g.id === "day-b" ? 1 : 0);
+      const count = g.exercises.filter((e) => !e.optionalHome && !e.retired).length
+        + (g.id === "day-b" ? 1 : 0)
+        + (g.id === "day-c" && !g.exercises.some((e) => e.id === "b-push") ? 1 : 0);
       const sub = (g.place ? g.place + " · " : "") + (progress.done
         ? `${progress.done}/${progress.total} sets today · ${count} exercises`
         : `${count} exercises`);
@@ -790,8 +807,12 @@
   function groupProgress(group) {
     let total = 0;
     let done = 0;
-    for (const exer of group.exercises) {
-      if (exer.optionalHome || exer.retired) continue;
+    const counted = group.exercises.filter((exer) => exer && !exer.optionalHome && !exer.retired);
+    if (group.id === "day-c") {
+      const shared = findExercise("b-push");
+      if (shared && !counted.some((exer) => exer.id === "b-push")) counted.push(shared.exercise);
+    }
+    for (const exer of counted) {
       const sets = workingSets(exer);
       total += sets.length;
       done += sets.filter((s) => s.done).length;
@@ -814,12 +835,19 @@
         main.splice(at + 1, 0, shared.exercise);
       }
     }
+    if (group.id === "day-c") {
+      const shared = findExercise("b-push");
+      if (shared && !main.some((exercise) => exercise.id === shared.exercise.id)) main.push(shared.exercise);
+    }
     const earlier = group.exercises.filter((exercise) => exercise.retired && (exercise.history || []).length);
     const finishers = group.place === "Home"
       ? allExercises().map((row) => row.exercise).filter((exercise, index, list) =>
         exercise.optionalHome && list.findIndex((other) => other.id === exercise.id) === index)
       : [];
-    const cards = main.map((exercise) => renderExercise(exercise)).join("");
+    const cards = main.map((exercise) => renderExercise(
+      exercise,
+      group.id === "day-c" && exercise.id === "b-push" ? "done at home after the gym" : ""
+    )).join("");
     const finisherHtml = finishers.length
       ? `<h2 class="prev-head">Optional</h2>${finishers.map((exercise) => renderExercise(exercise)).join("")}`
       : "";
@@ -856,7 +884,7 @@
     </article>`;
   }
 
-  function renderExercise(exercise) {
+  function renderExercise(exercise, extraNote) {
     const sets = workingSets(exercise);
     const selected = (ui.selected && ui.selected.exerciseId === exercise.id)
       ? ui.selected.setIndex
@@ -918,12 +946,13 @@
         </div>`}
       </div>` : "";
 
+    const note = [exercise.notes, extraNote].filter(Boolean).join(" · ");
     return `<article class="ex-card" data-ex="${exercise.id}">
       <div class="ex-head">
         <h3>${escapeHtml(exercise.name)}</h3>
       </div>
       <p class="ex-last">${escapeHtml(targetLine(exercise, defaultWeight))}${escapeHtml(lastLine)}</p>
-      ${exercise.notes ? `<p class="ex-note">${escapeHtml(exercise.notes)}</p>` : ""}
+      ${note ? `<p class="ex-note">${escapeHtml(note)}</p>` : ""}
       ${exercise.overload ? `<p class="overload">Weight up next time</p>` : ""}
       ${stages}
       <div class="sets">${setBtns}</div>
