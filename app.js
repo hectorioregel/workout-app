@@ -121,7 +121,7 @@
         mark: "A",
         place: "Home",
         exercises: [
-          db("Goblet squat to box", "a-squat", 3, 10, 12, 50, "one 50 lb dumbbell"),
+          db("Goblet squat to box", "a-squat", 3, 10, 12, 55, "one 55 lb dumbbell"),
           db("DB bench/floor press", "a-press", 3, 8, 12, 50, ""),
           db("Incline DB press", "c-incline", 3, 8, 12, 45, ""),
           ex("One-arm DB row", { id: "a-row", sets: 3, repMin: 10, repMax: 12, reps: 10, weight: 55, step: 5, notes: "L/R", sides: "lr" }),
@@ -151,8 +151,8 @@
         mark: "C",
         place: "Gym",
         exercises: [
-          ex("Leg extension (machine)", { id: "b-ext", sets: 3, repMin: 12, repMax: 15, reps: 12, weight: 150, step: 10 }),
-          ex("Leg curl (machine)", { id: "a-curl", sets: 3, repMin: 12, repMax: 15, reps: 12, weight: 150, step: 10 }),
+          ex("Leg extension (machine)", { id: "b-ext", sets: 3, repMin: 12, repMax: 15, reps: 12, weight: 160, step: 10 }),
+          ex("Leg curl (machine)", { id: "a-curl", sets: 3, repMin: 12, repMax: 15, reps: 12, weight: 160, step: 10 }),
           treadmillIntervals()
         ]
       }
@@ -169,6 +169,8 @@
       runs: []
     };
   }
+
+  const WEIGHT_FLOORS = { "a-squat": 55, "b-ext": 160, "a-curl": 160 };
 
   let data = load();
 
@@ -203,6 +205,7 @@
       parsed.planRev = 9;
       changed = true;
     }
+    if (applyWeightFloors(parsed)) changed = true;
     for (const group of parsed.groups) {
       if ((group.id === "arms" || group.id === "abs" || group.id === "legs") && !group.archived) {
         group.archived = true;
@@ -259,6 +262,36 @@
     if (!dayB.exercises.some((e) => e.id === "b-push")) dayB.exercises.push(push);
   }
 
+  function applyWeightFloors(parsed) {
+    if (parsed.weightFloorRev === 10) return false;
+    for (const group of parsed.groups || []) {
+      for (const exercise of group.exercises || []) {
+        const floor = WEIGHT_FLOORS[exercise.id];
+        if (!floor) continue;
+        (exercise.sets || []).forEach((set) => raiseWeight(set, floor));
+        if (exercise.id === "a-squat" && exercise.notes === "one 50 lb dumbbell") {
+          exercise.notes = "one 55 lb dumbbell";
+        }
+        const live = parsed.activeSession && parsed.activeSession.exercises && parsed.activeSession.exercises[exercise.id];
+        if (live && (live.sets || []).some((set) => weightBelow(set, floor))) parsed.upgradeWeightFloors = true;
+      }
+    }
+    parsed.weightFloorRev = 10;
+    return true;
+  }
+
+  function raiseWeight(set, floor) {
+    if ((set.weight || 0) < floor) set.weight = floor;
+    if (set.rightWeight != null && set.rightWeight < floor) set.rightWeight = floor;
+  }
+
+  function weightBelow(set, floor) {
+    return (set.weight || 0) < floor
+      || (set.rightWeight != null && set.rightWeight < floor)
+      || (set.left && (set.left.weight || 0) < floor)
+      || (set.right && (set.right.weight || 0) < floor);
+  }
+
   function tuneExercise(exercise, parsed) {
     if (!exercise) return exercise;
     const meta = {
@@ -269,7 +302,7 @@
       "c-thrust": { notes: "one 55 lb dumbbell · 2 s squeeze" },
       "c-tri": { notes: "one 45 lb dumbbell" },
       "c-calf": { notes: "30 lb each hand · 1 s pause" },
-      "a-squat": { notes: "one 50 lb dumbbell" }
+      "a-squat": { notes: "one 55 lb dumbbell" }
     }[exercise.id];
     if (meta) Object.assign(exercise, meta);
     if (exercise.id === "a-row" && exercise.sets) {
@@ -519,6 +552,9 @@
           weight = 55;
           if (rightWeight === 45) rightWeight = 55;
         }
+        const floor = data.upgradeWeightFloors && WEIGHT_FLOORS[found.exercise.id];
+        if (floor && weight < floor) weight = floor;
+        if (floor && rightWeight < floor) rightWeight = floor;
         const row = {
           targetReps: found.exercise.stages ? (found.exercise.sets[i]?.targetReps || 0) : (lr && s.left ? s.left.reps : s.reps),
           weight
@@ -543,6 +579,7 @@
       }
     }
     if (data.upgradeRow55) delete data.upgradeRow55;
+    if (data.upgradeWeightFloors) delete data.upgradeWeightFloors;
     data.activeSession = null;
     persist();
     if (!silent && (saved || loggedMobility)) toast("Workout saved");

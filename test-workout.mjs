@@ -89,7 +89,11 @@ await tapAct("open-group", "[data-id='day-a']");
 await page.waitForSelector(".ex-card");
 const armsText = await page.evaluate(() => document.body.innerText);
 ok("day A list loaded", /Goblet squat to box/.test(armsText) && /DB bench\/floor press/.test(armsText) && /Plank/.test(armsText) && /Rest 60-90 s/.test(armsText));
-ok("goblet squat shows 3 sets of 10 at 50 lb", /Goblet squat/.test(armsText) && (armsText.match(/\b10\b/g) || []).length >= 3 && /50 lb/.test(armsText));
+const gobletCard = await page.evaluate(() => {
+  const card = [...document.querySelectorAll(".ex-card")].find((el) => /Goblet squat/.test(el.innerText));
+  return card ? card.innerText : "";
+});
+ok("goblet squat shows 3 sets of 10 at 55 lb", /Goblet squat/.test(gobletCard) && (gobletCard.match(/\b10\b/g) || []).length >= 3 && /55 lb/.test(gobletCard), gobletCard.replace(/\s+/g, " ").slice(0, 160));
 
 const firstSet = await page.$(".ex-card .set-btn");
 await firstSet.tap();
@@ -431,10 +435,10 @@ const bumpedLoad = await page.evaluate(() => {
   return {
     weight: squat.sets[0].weight,
     hint: squat.overload === true && /Weight up next time/.test(text),
-    used: squat.history[0].sets.every((s) => s.weight === 50 && s.reps >= 12)
+    used: squat.history[0].sets.every((s) => s.weight === 55 && s.reps >= 12)
   };
 });
-ok("top of the rep range raises next weight by 5 lb", bumpedLoad.weight === 55 && bumpedLoad.hint && bumpedLoad.used, JSON.stringify(bumpedLoad));
+ok("top of the rep range raises next weight by 5 lb", bumpedLoad.weight === 60 && bumpedLoad.hint && bumpedLoad.used, JSON.stringify(bumpedLoad));
 
 await page.$eval("[data-act='toggle-mobility']", (el) => el.click());
 await tapAct("save-workout");
@@ -527,6 +531,38 @@ const moved = await page.evaluate(() => {
   };
 });
 ok("migration keeps history and moves exercises", moved.inclineOnA && moved.history === 9 && moved.weight === 45 && moved.row === 55 && moved.sides === "lr", JSON.stringify(moved));
+
+await page.evaluate(() => {
+  const d = JSON.parse(localStorage.getItem("hector-workout-v1"));
+  const all = d.groups.flatMap((g) => g.exercises);
+  const squat = all.find((e) => e.id === "a-squat");
+  squat.sets.forEach((s) => { s.weight = 50; });
+  squat.history = [{ id: "nov23", date: "2026-11-23", sets: [{ reps: 11, weight: 50 }] }];
+  const curl = all.find((e) => e.id === "a-curl");
+  curl.sets.forEach((s) => { s.weight = 150; });
+  const ext = all.find((e) => e.id === "b-ext");
+  ext.sets.forEach((s) => { s.weight = 170; });
+  ext.history = [{ id: "ext-hist", date: "2026-11-23", sets: [{ reps: 15, weight: 170 }] }];
+  delete d.weightFloorRev;
+  localStorage.setItem("hector-workout-v1", JSON.stringify(d));
+});
+await page.reload({ waitUntil: "networkidle0" });
+const floors = await page.evaluate(() => {
+  const d = JSON.parse(localStorage.getItem("hector-workout-v1"));
+  const all = d.groups.flatMap((g) => g.exercises);
+  const squat = all.find((e) => e.id === "a-squat");
+  const curl = all.find((e) => e.id === "a-curl");
+  const ext = all.find((e) => e.id === "b-ext");
+  return {
+    squat: squat.sets[0].weight,
+    curl: curl.sets[0].weight,
+    ext: ext.sets[0].weight,
+    squatReps: squat.repMin + "-" + squat.repMax,
+    hist: squat.history[0].sets[0],
+    extHist: ext.history[0].sets[0].weight
+  };
+});
+ok("weight floors raise only lower stored weights", floors.squat === 55 && floors.curl === 160 && floors.ext === 170 && floors.squatReps === "10-12" && floors.hist.reps === 11 && floors.hist.weight === 50 && floors.extHist === 170, JSON.stringify(floors));
 
 await page.evaluate(() => {
   localStorage.setItem("hector-workout-v1", JSON.stringify({
