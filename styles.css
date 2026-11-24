@@ -228,6 +228,8 @@ textarea { resize: vertical; min-height: 80px; }
   font-weight: 650;
 }
 .warmup input { width: 22px; height: 22px; accent-color: var(--accent); }
+.lr-set { display: flex; gap: 8px; align-items: stretch; margin-top: 8px; }
+.lr-label { width: 48px; align-self: center; font-size: 12px; font-weight: 750; color: var(--text-dim); }
 .group-card.run .group-mark { background: rgba(92, 255, 196, 0.14); color: #5CFFC4; }
 
 .group-meta { flex: 1; min-width: 0; }

@@ -83,7 +83,7 @@ await page.waitForSelector(".group-card.day-a");
 await page.screenshot({ path: path.join(SCREEN, "01-home.png") });
 ok("home renders", await page.$(".group-card.day-a") && await page.$(".group-card.day-b") && await page.$(".group-card.day-c") && !(await page.$(".group-card.day-d")));
 const homeText = await page.evaluate(() => document.body.innerText);
-ok("home has days and actions", /Day A/.test(homeText) && /Day B/.test(homeText) && /Day C/.test(homeText) && !/Day 4/.test(homeText) && /Export/.test(homeText));
+ok("home has days and actions", /Day A/.test(homeText) && /Day B/.test(homeText) && /Day C/.test(homeText) && /Home/.test(homeText) && /Gym/.test(homeText) && !/Day 4/.test(homeText) && /Export/.test(homeText));
 
 await tapAct("open-group", "[data-id='day-a']");
 await page.waitForSelector(".ex-card");
@@ -197,7 +197,7 @@ await page.$eval(".group-card.day-c", (el) => el.click());
 await page.waitForSelector(".stage-btn");
 const legs = await page.evaluate(() => document.body.innerText);
 ok("treadmill stages shown", /Walk/.test(legs) && /3 min/.test(legs) && /3\.5/.test(legs) && /Sprint/.test(legs) && /10\.5/.test(legs) && /Set 1 of 2/i.test(legs));
-ok("day C lists the new exercises", /DB hip thrust/.test(legs) && /Calf raise/.test(legs) && /Treadmill intervals/.test(legs));
+ok("day C is the gym day", /Leg extension/.test(legs) && /Leg curl/.test(legs) && /Treadmill intervals/.test(legs) && !/DB hip thrust/.test(legs));
 
 await page.$eval("#toast", (el) => { el.hidden = true; });
 await page.screenshot({ path: path.join(SCREEN, "04-treadmill-stages.png") });
@@ -247,9 +247,9 @@ async function readTimer() {
   }));
 }
 
-const walkBtn = await page.$('[data-act="tap-stage"][data-i="0"]');
+const walkBtn = await page.$('[data-act="tap-stage"][data-i="0"] .stage-name');
 ok("walk stage is tappable", !!walkBtn);
-await walkBtn.tap();
+await page.$eval('[data-act="tap-stage"][data-i="0"] .stage-name', (el) => el.click());
 await page.waitForSelector("#timer-display");
 const walkTimer = await readTimer();
 ok("tapping walk starts 3:00 timer", /^(3:00|2:5\d)$/.test(walkTimer.time), JSON.stringify(walkTimer));
@@ -259,8 +259,7 @@ ok("walk timer is running", walkTimer.toggle === "Pause", walkTimer.toggle);
 await page.$eval('[data-act="timer-toggle"]', (el) => el.click());
 await closeSheet();
 
-const jogBtn = await page.$('[data-act="tap-stage"][data-i="1"]');
-await jogBtn.tap();
+await page.$eval('[data-act="tap-stage"][data-i="1"] .stage-name', (el) => el.click());
 await page.waitForSelector("#timer-display");
 const jogTimer = await readTimer();
 ok("tapping jog starts 4:00 timer", /^(4:00|3:5\d)$/.test(jogTimer.time), JSON.stringify(jogTimer));
@@ -269,8 +268,7 @@ ok("jog timer shows name and speed", jogTimer.title === "Jog" && /@\s*7\.1/.test
 await page.$eval('[data-act="timer-toggle"]', (el) => el.click());
 await closeSheet();
 
-const sprintBtn = await page.$('[data-act="tap-stage"][data-i="2"]');
-await sprintBtn.tap();
+await page.$eval('[data-act="tap-stage"][data-i="2"] .stage-name', (el) => el.click());
 await page.waitForSelector("#timer-display");
 const sprintTimer = await readTimer();
 ok("tapping sprint starts 1:00 timer", /^(1:00|0:5\d)$/.test(sprintTimer.time), JSON.stringify(sprintTimer));
@@ -449,6 +447,86 @@ const mobility = await page.evaluate(() => {
   return { logged, checked };
 });
 ok("mobility warm-up is logged and stays checked", mobility.logged && mobility.checked, JSON.stringify(mobility));
+
+await page.evaluate(() => { location.hash = "#/g/day-a"; });
+await page.waitForSelector(".ex-card");
+const dayA = await page.evaluate(() => document.body.innerText);
+ok("day A is home and includes the moved exercises", /Incline DB press/.test(dayA) && /One-arm DB row/.test(dayA) && /55 lb/.test(dayA) && /OPTIONAL/i.test(dayA) && /Push-ups/.test(dayA) && !/Leg curl/.test(dayA));
+const lr = await page.evaluate(() => {
+  const card = [...document.querySelectorAll(".ex-card")].find((el) => /One-arm DB row/.test(el.innerText));
+  const bug = [...document.querySelectorAll(".ex-card")].find((el) => /Dead bug/.test(el.innerText));
+  return {
+    left: card.querySelectorAll('[data-side="L"]').length,
+    right: card.querySelectorAll('[data-side="R"]').length,
+    bugSides: bug ? bug.querySelectorAll("[data-side]").length : 0
+  };
+});
+ok("one-arm row logs left and right", lr.left === 3 && lr.right === 3, JSON.stringify(lr));
+await page.evaluate(() => { location.hash = "#/g/day-b"; });
+await page.waitForFunction(() => /Dead bug/.test(document.body.innerText) && /DB hip thrust/.test(document.body.innerText));
+const bugSides = await page.evaluate(() => {
+  const bug = [...document.querySelectorAll(".ex-card")].find((el) => /Dead bug/.test(el.innerText));
+  return bug ? bug.querySelectorAll("[data-side]").length : -1;
+});
+ok("dead bug stays one number per set", bugSides === 0, String(bugSides));
+await page.evaluate(() => { location.hash = "#/g/day-a"; });
+await page.waitForFunction(() => /Plank/.test(document.body.innerText));
+
+await page.evaluate(() => { navigator.vibrate = (pattern) => { window.__vib = pattern; return true; }; });
+await page.evaluate(() => {
+  const card = [...document.querySelectorAll(".ex-card")].find((el) => /Plank/.test(el.innerText));
+  card.querySelector("[data-act='tap-set']").click();
+});
+await page.waitForSelector("#timer-display");
+const plankStart = await page.$eval("#timer-display", (el) => el.textContent);
+ok("plank tap starts a 30 second countdown", plankStart === "0:30", plankStart);
+await page.evaluate(() => {
+  let now = Date.now();
+  Date.now = () => now;
+  window.__jump = (ms) => { now += ms; };
+  window.__jump(31000);
+});
+await page.waitForFunction(() => {
+  const card = [...document.querySelectorAll(".ex-card")].find((el) => /Plank/.test(el.innerText));
+  return card && card.querySelector(".set-btn.done");
+});
+const plankLogged = await page.evaluate(() => {
+  const d = JSON.parse(localStorage.getItem("hector-workout-v1"));
+  const plank = d.groups.flatMap((g) => g.exercises).find((e) => e.id === "a-plank");
+  const session = d.activeSession.exercises["a-plank"].sets[0];
+  return { reps: session.reps, done: session.done, vib: Array.isArray(window.__vib) && window.__vib.length > 0 };
+});
+ok("finished plank logs 30 seconds and vibrates", plankLogged.reps === 30 && plankLogged.done && plankLogged.vib, JSON.stringify(plankLogged));
+
+await page.evaluate(() => {
+  const d = JSON.parse(localStorage.getItem("hector-workout-v1"));
+  const incline = d.groups.flatMap((g) => g.exercises).find((e) => e.id === "c-incline");
+  incline.history = [{ id: "keep-me", date: "2026-11-23", sets: [{ reps: 9, weight: 45 }] }];
+  incline.sets.forEach((s) => { s.weight = 45; });
+  const row = d.groups.flatMap((g) => g.exercises).find((e) => e.id === "a-row");
+  row.sets.forEach((s) => { s.weight = 45; });
+  const dayC = d.groups.find((g) => g.id === "day-c");
+  const dayA = d.groups.find((g) => g.id === "day-a");
+  dayC.exercises.push(dayA.exercises.splice(dayA.exercises.findIndex((e) => e.id === "c-incline"), 1)[0]);
+  delete d.planRev;
+  localStorage.setItem("hector-workout-v1", JSON.stringify(d));
+});
+await page.reload({ waitUntil: "networkidle0" });
+const moved = await page.evaluate(() => {
+  const d = JSON.parse(localStorage.getItem("hector-workout-v1"));
+  const dayA = d.groups.find((g) => g.id === "day-a").exercises.map((e) => e.id);
+  const dayC = d.groups.find((g) => g.id === "day-c").exercises.map((e) => e.id);
+  const incline = d.groups.flatMap((g) => g.exercises).find((e) => e.id === "c-incline");
+  const row = d.groups.flatMap((g) => g.exercises).find((e) => e.id === "a-row");
+  return {
+    inclineOnA: dayA.includes("c-incline") && !dayC.includes("c-incline"),
+    history: incline.history[0].sets[0].reps,
+    weight: incline.sets[0].weight,
+    row: row.sets[0].weight,
+    sides: row.sides
+  };
+});
+ok("migration keeps history and moves exercises", moved.inclineOnA && moved.history === 9 && moved.weight === 45 && moved.row === 55 && moved.sides === "lr", JSON.stringify(moved));
 
 await page.evaluate(() => {
   localStorage.setItem("hector-workout-v1", JSON.stringify({

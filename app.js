@@ -90,7 +90,9 @@
       repMin: opts.repMin || 0,
       repMax: opts.repMax || 0,
       weightStep: opts.step || 0,
-      logUnit: opts.unit || "reps"
+      logUnit: opts.unit || "reps",
+      sides: opts.sides || "",
+      optionalHome: !!opts.optionalHome
     };
   }
 
@@ -117,11 +119,13 @@
         id: "day-a",
         name: "Day A",
         mark: "A",
+        place: "Home",
         exercises: [
           db("Goblet squat to box", "a-squat", 3, 10, 12, 50, "one 50 lb dumbbell"),
           db("DB bench/floor press", "a-press", 3, 8, 12, 50, ""),
-          db("One-arm DB row", "a-row", 3, 10, 12, 45, "per side"),
-          ex("Leg curl (machine)", { id: "a-curl", sets: 3, repMin: 12, repMax: 15, reps: 12, weight: 150, step: 10 }),
+          db("Incline DB press", "c-incline", 3, 8, 12, 45, ""),
+          ex("One-arm DB row", { id: "a-row", sets: 3, repMin: 10, repMax: 12, reps: 10, weight: 55, step: 5, notes: "L/R", sides: "lr" }),
+          ex("Overhead triceps extension", { id: "c-tri", sets: 2, repMin: 10, repMax: 12, reps: 10, weight: 45, step: 5, notes: "one 45 lb dumbbell" }),
           ex("Plank", { id: "a-plank", bodyweight: true, sets: 3, repMin: 30, repMax: 45, reps: 30, unit: "sec", notes: "log seconds" })
         ]
       },
@@ -129,25 +133,26 @@
         id: "day-b",
         name: "Day B",
         mark: "B",
+        place: "Home",
         exercises: [
           db("DB Romanian deadlift", "b-rdl", 3, 10, 12, 45, ""),
+          db("DB hip thrust", "c-thrust", 3, 12, 15, 55, "one 55 lb dumbbell · 2 s squeeze"),
           db("Seated DB shoulder press", "b-press", 3, 8, 12, 30, ""),
-          ex("Push-ups", { id: "b-push", bodyweight: true, sets: 3, reps: 8, notes: "2 reps short of failure" }),
-          ex("Leg extension (machine)", { id: "b-ext", sets: 3, repMin: 12, repMax: 15, reps: 12, weight: 150, step: 10 }),
-          ex("Dead bug", { id: "b-bug", bodyweight: true, sets: 3, repMin: 10, repMax: 10, reps: 10, notes: "per side" })
+          db("Two-arm DB row", "c-row", 3, 10, 12, 40, ""),
+          db("DB curl", "c-curl", 2, 10, 12, 40, ""),
+          db("Calf raise", "c-calf", 3, 15, 20, 30, "30 lb each hand · 1 s pause"),
+          ex("Dead bug", { id: "b-bug", bodyweight: true, sets: 3, repMin: 10, repMax: 10, reps: 10, notes: "per side" }),
+          ex("Push-ups", { id: "b-push", bodyweight: true, sets: 3, reps: 8, notes: "2 reps short of failure", optionalHome: true })
         ]
       },
       {
         id: "day-c",
         name: "Day C",
         mark: "C",
+        place: "Gym",
         exercises: [
-          db("DB hip thrust", "c-thrust", 3, 12, 15, 55, "one 55 lb dumbbell · 2 s squeeze"),
-          db("Incline DB press", "c-incline", 3, 8, 12, 45, ""),
-          db("Two-arm DB row", "c-row", 3, 10, 12, 40, ""),
-          db("Calf raise", "c-calf", 3, 15, 20, 30, "30 lb each hand · 1 s pause"),
-          db("DB curl", "c-curl", 2, 10, 12, 40, ""),
-          db("Overhead triceps extension", "c-tri", 2, 10, 12, 45, "one 45 lb dumbbell"),
+          ex("Leg extension (machine)", { id: "b-ext", sets: 3, repMin: 12, repMax: 15, reps: 12, weight: 150, step: 10 }),
+          ex("Leg curl (machine)", { id: "a-curl", sets: 3, repMin: 12, repMax: 15, reps: 12, weight: 150, step: 10 }),
           treadmillIntervals()
         ]
       }
@@ -157,6 +162,7 @@
   function defaultData() {
     return {
       version: 1,
+      planRev: 9,
       groups: phase1Groups(),
       activeSession: null,
       installTipDismissed: false,
@@ -189,6 +195,12 @@
     parsed.groups = parsed.groups || [];
     if (!parsed.groups.some((g) => g.id === "day-a")) {
       parsed.groups = phase1Groups().concat(parsed.groups);
+      parsed.planRev = 9;
+      changed = true;
+    }
+    if (parsed.planRev !== 9) {
+      layoutPhase1(parsed);
+      parsed.planRev = 9;
       changed = true;
     }
     for (const group of parsed.groups) {
@@ -204,6 +216,76 @@
       }
     }
     return { data: parsed, changed };
+  }
+
+  function layoutPhase1(parsed) {
+    const order = {
+      "day-a": ["a-squat", "a-press", "c-incline", "a-row", "c-tri", "a-plank"],
+      "day-b": ["b-rdl", "c-thrust", "b-press", "c-row", "c-curl", "c-calf", "b-bug"],
+      "day-c": ["b-ext", "a-curl", "c-treadmill"]
+    };
+    const places = { "day-a": "Home", "day-b": "Home", "day-c": "Gym" };
+    const names = { "day-a": "Day A", "day-b": "Day B", "day-c": "Day C" };
+    const wanted = new Set(Object.values(order).flat().concat("b-push"));
+    const pulled = {};
+    for (const group of parsed.groups) {
+      group.exercises = (group.exercises || []).filter((exercise) => {
+        if (exercise && wanted.has(exercise.id)) {
+          pulled[exercise.id] = exercise;
+          return false;
+        }
+        return true;
+      });
+    }
+    const fresh = {};
+    phase1Groups().forEach((group) => {
+      group.exercises.forEach((exercise) => { fresh[exercise.id] = exercise; });
+    });
+    Object.keys(order).forEach((id) => {
+      let group = parsed.groups.find((g) => g.id === id);
+      if (!group) {
+        group = { id, name: names[id], mark: id.slice(-1).toUpperCase(), exercises: [] };
+        parsed.groups.unshift(group);
+      }
+      const leftovers = group.exercises || [];
+      group.name = names[id];
+      group.mark = id.slice(-1).toUpperCase();
+      group.place = places[id];
+      group.exercises = order[id].map((eid) => tuneExercise(pulled[eid] || fresh[eid], parsed)).concat(leftovers);
+    });
+    const dayB = parsed.groups.find((g) => g.id === "day-b");
+    const push = tuneExercise(pulled["b-push"] || fresh["b-push"], parsed);
+    push.optionalHome = true;
+    if (!dayB.exercises.some((e) => e.id === "b-push")) dayB.exercises.push(push);
+  }
+
+  function tuneExercise(exercise, parsed) {
+    if (!exercise) return exercise;
+    const meta = {
+      "a-row": { sides: "lr", notes: "L/R", repMin: 10, repMax: 12, weightStep: 5 },
+      "a-plank": { logUnit: "sec", repMin: 30, repMax: 45, notes: "log seconds" },
+      "b-bug": { sides: "", notes: "per side", repMin: 10, repMax: 10 },
+      "b-push": { optionalHome: true, notes: "2 reps short of failure" },
+      "c-thrust": { notes: "one 55 lb dumbbell · 2 s squeeze" },
+      "c-tri": { notes: "one 45 lb dumbbell" },
+      "c-calf": { notes: "30 lb each hand · 1 s pause" },
+      "a-squat": { notes: "one 50 lb dumbbell" }
+    }[exercise.id];
+    if (meta) Object.assign(exercise, meta);
+    if (exercise.id === "a-row" && exercise.sets) {
+      let lifted = false;
+      exercise.sets.forEach((set) => {
+        if (!set.weight || set.weight === 45) {
+          set.weight = 55;
+          lifted = true;
+        }
+        if (set.rightWeight === 45) set.rightWeight = 55;
+      });
+      if (lifted && parsed && parsed.activeSession && parsed.activeSession.exercises && parsed.activeSession.exercises["a-row"]) {
+        parsed.upgradeRow55 = true;
+      }
+    }
+    return exercise;
   }
 
   function persist() {
@@ -262,7 +344,33 @@
         };
       });
     }
+    if (exercise.sides === "lr") {
+      sets = sets.map((s) => withSides(s));
+    }
     return sets;
+  }
+
+  function withSides(set) {
+    const reps = set.targetReps != null ? set.targetReps : (set.reps || 0);
+    const weight = set.weight || 0;
+    const left = set.left
+      ? { reps: set.left.reps, weight: set.left.weight, done: !!set.left.done }
+      : { reps: set.reps != null && set.reps !== reps ? set.reps : reps, weight, done: false };
+    const right = set.right
+      ? { reps: set.right.reps, weight: set.right.weight, done: !!set.right.done }
+      : {
+        reps: set.rightReps != null ? set.rightReps : reps,
+        weight: set.rightWeight != null ? set.rightWeight : weight,
+        done: false
+      };
+    return {
+      ...set,
+      left,
+      right,
+      reps: left.reps,
+      weight: left.weight,
+      done: !!(left.done && right.done)
+    };
   }
 
   function normalizeStagesDone(exercise, set) {
@@ -374,6 +482,12 @@
       const sets = entry.sets || [];
       const completed = sets.filter((s) => s.done).map((s) => {
         const row = { reps: s.reps, weight: s.weight };
+        if (s.left && s.right) {
+          row.left = { reps: s.left.reps, weight: s.left.weight };
+          row.right = { reps: s.right.reps, weight: s.right.weight };
+          row.reps = s.left.reps;
+          row.weight = s.left.weight;
+        }
         if (found.exercise.stages && found.exercise.stages.length) {
           row.stages = found.exercise.stages.map((st, i) => ({
             label: st.label || "Stage",
@@ -394,10 +508,27 @@
         saved += 1;
       }
       const earned = earnedOverload(found.exercise, completed);
-      found.exercise.sets = sets.map((s, i) => ({
-        targetReps: found.exercise.stages ? (found.exercise.sets[i]?.targetReps || 0) : s.reps,
-        weight: (s.weight || 0) + (earned ? found.exercise.weightStep : 0)
-      }));
+      const bump = earned ? found.exercise.weightStep : 0;
+      const lr = found.exercise.sides === "lr";
+      found.exercise.sets = sets.map((s, i) => {
+        const leftW = lr ? (s.left ? s.left.weight : s.weight) : s.weight;
+        const rightW = lr && s.right ? s.right.weight : leftW;
+        let weight = (leftW || 0) + bump;
+        let rightWeight = (rightW || 0) + bump;
+        if (found.exercise.id === "a-row" && data.upgradeRow55 && weight === 45) {
+          weight = 55;
+          if (rightWeight === 45) rightWeight = 55;
+        }
+        const row = {
+          targetReps: found.exercise.stages ? (found.exercise.sets[i]?.targetReps || 0) : (lr && s.left ? s.left.reps : s.reps),
+          weight
+        };
+        if (lr) {
+          row.rightReps = s.right ? s.right.reps : row.targetReps;
+          row.rightWeight = rightWeight;
+        }
+        return row;
+      });
       found.exercise.overload = earned ? true : (completed.length ? false : !!found.exercise.overload);
       if (sets.some((s) => s.weight > 0)) found.exercise.isBodyweight = false;
     }
@@ -411,6 +542,7 @@
         loggedMobility = true;
       }
     }
+    if (data.upgradeRow55) delete data.upgradeRow55;
     data.activeSession = null;
     persist();
     if (!silent && (saved || loggedMobility)) toast("Workout saved");
@@ -428,6 +560,9 @@
   function earnedOverload(exercise, completed) {
     if (!exercise.repMax || !exercise.weightStep) return false;
     if (!completed.length || completed.length < (exercise.sets || []).length) return false;
+    if (exercise.sides === "lr") {
+      return completed.every((s) => s.left && s.right && s.left.reps >= exercise.repMax && s.right.reps >= exercise.repMax);
+    }
     return completed.every((s) => s.reps >= exercise.repMax);
   }
 
@@ -461,11 +596,28 @@
   function lastUsed(exercise) {
     if (exercise.history && exercise.history[0]) {
       const last = exercise.history[0];
-      const weights = last.sets.map((s) => s.weight);
-      const reps = last.sets.map((s) => s.reps);
-      return { date: last.date, weights, reps };
+      return {
+        date: last.date,
+        weights: last.sets.map((s) => s.weight),
+        reps: last.sets.map((s) => s.reps),
+        left: last.sets.map((s) => s.left || null),
+        right: last.sets.map((s) => s.right || null)
+      };
     }
     return null;
+  }
+
+  function lastSummary(exercise, last) {
+    if (exercise.sides === "lr" && last.left && last.left[0]) {
+      const l = last.left[0];
+      const r = last.right[0] || l;
+      const lw = l.weight ? l.weight + " lb" : "BW";
+      const rw = r.weight ? r.weight + " lb" : "BW";
+      return `L ${l.reps}×${lw} R ${r.reps}×${rw}`;
+    }
+    const reps = last.reps.join("/");
+    if (exercise.logUnit === "sec") return reps + " s";
+    return reps + "×" + (last.weights[0] ? last.weights[0] + " lb" : "BW");
   }
 
   function escapeHtml(str) {
@@ -535,9 +687,10 @@
 
     const card = (g) => {
       const progress = groupProgress(g);
-      const sub = progress.done
-        ? `${progress.done}/${progress.total} sets today · ${g.exercises.length} exercises`
-        : `${g.exercises.length} exercises`;
+      const count = g.exercises.filter((e) => !e.optionalHome).length;
+      const sub = (g.place ? g.place + " · " : "") + (progress.done
+        ? `${progress.done}/${progress.total} sets today · ${count} exercises`
+        : `${count} exercises`);
       const letter = g.mark || g.name[0];
       return `<button class="group-card ${escapeHtml(g.id)}${g.archived ? " archived" : ""}" data-act="open-group" data-id="${escapeHtml(g.id)}">
         <div class="group-mark">${escapeHtml(letter)}</div>
@@ -603,7 +756,15 @@
       return renderHome();
     }
     const stats = sessionStats();
-    const cards = group.exercises.map((exercise) => renderExercise(exercise)).join("");
+    const main = group.exercises.filter((exercise) => !exercise.optionalHome);
+    const finishers = group.place === "Home"
+      ? allExercises().map((row) => row.exercise).filter((exercise, index, list) =>
+        exercise.optionalHome && list.findIndex((other) => other.id === exercise.id) === index)
+      : [];
+    const cards = main.map((exercise) => renderExercise(exercise)).join("");
+    const finisherHtml = finishers.length
+      ? `<h2 class="prev-head">Optional</h2>${finishers.map((exercise) => renderExercise(exercise)).join("")}`
+      : "";
     return `
       <header class="topbar">
         <button class="icon-btn" data-act="go-home" aria-label="Back">${iconBack()}</button>
@@ -614,6 +775,7 @@
         ${group.archived ? "" : `<p class="day-rest">Rest 60-90 s</p>
         <label class="warmup"><input type="checkbox" data-act="toggle-mobility" ${mobilityChecked(group.id) ? "checked" : ""}> Mobility warm-up (3-5 min)</label>`}
         ${cards}
+        ${finisherHtml}
         <button class="add-ex" data-act="add-exercise" data-group="${escapeHtml(group.id)}">+ Add exercise</button>
         <div class="row-actions">
           ${stats.doneSets ? `<button class="btn" data-act="clear-session">Clear</button>` : ""}
@@ -628,15 +790,25 @@
       ? ui.selected.setIndex
       : null;
     const last = lastUsed(exercise);
-    const lastLine = last
-      ? ` · Last ${last.reps.join("/")}${exercise.logUnit === "sec" ? " s" : "×" + (last.weights[0] ? last.weights[0] + " lb" : "BW")}`
-      : "";
+    const lastLine = last ? ` · Last ${lastSummary(exercise, last)}` : "";
     const defaultWeight = exercise.sets[0] ? exercise.sets[0].weight : 0;
     const isSec = exercise.logUnit === "sec";
     const isTimed = !!(exercise.stages && exercise.stages.length);
     const setIndex = isTimed ? currentSetIndex(exercise) : selected;
     const stages = isTimed ? renderStages(exercise, sets, setIndex) : "";
-    const setBtns = isTimed ? "" : sets.map((s, i) => {
+    const setBtns = isTimed ? "" : exercise.sides === "lr" ? sets.map((s, i) => {
+      const sideBtn = (side, value) => {
+        const cls = ["set-btn"];
+        if (value.done) cls.push("done");
+        if (selected === i && ui.selected.side === side) cls.push("selected");
+        return `<button class="${cls.join(" ")}" data-act="tap-side" data-ex="${exercise.id}" data-i="${i}" data-side="${side}">
+          <span class="lbl">${side}</span>
+          <span class="reps">${value.reps}</span>
+          <span class="wt">${value.weight ? value.weight + " lb" : "BW"}</span>
+        </button>`;
+      };
+      return `<div class="lr-set"><span class="lr-label">Set ${i + 1}</span>${sideBtn("L", s.left)}${sideBtn("R", s.right)}</div>`;
+    }).join("") : sets.map((s, i) => {
       const cls = ["set-btn"];
       if (s.done) cls.push("done");
       if (selected === i) cls.push("selected");
@@ -649,26 +821,29 @@
       </button>`;
     }).join("");
 
-    const showAdjust = selected != null && !isTimed;
+    const showAdjust = selected != null && !isTimed && exercise.sides !== "lr" ? true
+      : selected != null && exercise.sides === "lr" && ui.selected.side;
     const cur = selected != null ? sets[selected] : null;
-    const adjust = showAdjust && cur ? `
-      <div class="adjust${cur && (exercise.isBodyweight && cur.weight === 0) ? "" : ""}">
+    const sideCur = cur && exercise.sides === "lr" ? cur[ui.selected.side === "R" ? "right" : "left"] : cur;
+    const shown = sideCur || cur;
+    const adjust = showAdjust && shown ? `
+      <div class="adjust">
         <div class="stepper-wrap">
-          <div class="kind-lbl">${isSec ? "Seconds" : "Reps"}</div>
+          <div class="kind-lbl">${isSec ? "Seconds" : "Reps"}${exercise.sides === "lr" ? " " + ui.selected.side : ""}</div>
           <div class="stepper">
             <button data-act="step" data-ex="${exercise.id}" data-i="${selected}" data-field="reps" data-dir="-1" aria-label="Decrease reps">−</button>
-            <div class="val">${cur.reps}</div>
+            <div class="val">${shown.reps}</div>
             <button data-act="step" data-ex="${exercise.id}" data-i="${selected}" data-field="reps" data-dir="1" aria-label="Increase reps">+</button>
           </div>
         </div>
-        <div class="stepper-wrap">
+        ${isSec ? "" : `<div class="stepper-wrap">
           <div class="kind-lbl">Weight</div>
           <div class="stepper">
             <button data-act="step" data-ex="${exercise.id}" data-i="${selected}" data-field="weight" data-dir="-1" aria-label="Decrease weight">−</button>
-            <div class="val">${cur.weight ? cur.weight + " lb" : "BW"}</div>
+            <div class="val">${shown.weight ? shown.weight + " lb" : "BW"}</div>
             <button data-act="step" data-ex="${exercise.id}" data-i="${selected}" data-field="weight" data-dir="1" aria-label="Increase weight">+</button>
           </div>
-        </div>
+        </div>`}
       </div>` : "";
 
     return `<article class="ex-card" data-ex="${exercise.id}">
@@ -757,12 +932,13 @@
 
   function sheetTimer() {
     const stage = timer.stage;
+    const hold = timer.hold;
     const display = formatTime(timer.justFinished && !timer.running ? 0 : (timer.running || timer.remainingMs ? timer.remainingMs : currentPresetSeconds() * 1000));
     const cls = timer.justFinished && !timer.running ? "timer-display done" : "timer-display";
-    const presets = stage ? "" : `<div class="presets">${PRESETS.map((p) =>
+    const presets = stage || hold ? "" : `<div class="presets">${PRESETS.map((p) =>
       `<button class="preset${timer.presetId === p.id ? " on" : ""}" data-act="timer-preset" data-id="${p.id}">${p.label}</button>`
     ).join("")}</div>`;
-    const custom = !stage && timer.presetId === "custom" ? `
+    const custom = !stage && !hold && timer.presetId === "custom" ? `
       <div class="custom-row">
         <div class="stepper-wrap">
           <div class="kind-lbl">Minutes</div>
@@ -782,8 +958,10 @@
         </div>
       </div>` : "";
     const startLabel = timer.running ? "Pause" : (timer.remainingMs > 0 && !timer.justFinished ? "Resume" : "Start");
-    const title = stage ? escapeHtml(stage.label) : "Timer";
-    const sub = stage
+    const title = hold ? escapeHtml(hold.label) : stage ? escapeHtml(stage.label) : "Timer";
+    const sub = hold
+      ? `<p class="timer-sub" id="timer-stage-sub">Set ${hold.setIndex + 1}</p>`
+      : stage
       ? `<p class="timer-sub" id="timer-stage-sub">${stage.setting ? "@ " + escapeHtml(stage.setting) + " · " : ""}Set ${stage.setIndex + 1} of ${stage.totalSets}</p>`
       : "";
     let finishedNote = "";
@@ -812,11 +990,13 @@
     const exercise = found.exercise;
     const items = (exercise.history || []).map((h) => {
       const rows = h.sets.map((s, i) => {
-        const right = (s.stages && s.stages.length)
+        const right = (s.left && s.right)
+          ? `L ${s.left.reps}×${s.left.weight || "BW"} · R ${s.right.reps}×${s.right.weight || "BW"}`
+          : (s.stages && s.stages.length)
           ? s.stages.map((st) => (st.label || "Stage") + (st.setting ? " @ " + st.setting : "")).join(" · ")
           : (exercise.stages
             ? "Completed"
-            : `${s.reps} reps${s.weight ? " × " + s.weight + " lb" : " · BW"}`);
+            : `${s.reps}${exercise.logUnit === "sec" ? " s" : " reps"}${s.weight ? " × " + s.weight + " lb" : " · BW"}`);
         return `<div class="hist-set"><span>Set ${i + 1}</span><span>${escapeHtml(right)}</span></div>`;
       }).join("");
       return `<div class="hist-item"><h3>${escapeHtml(formatLongDate(h.date))}</h3>${rows || "<div class='hist-set'>No sets</div>"}</div>`;
@@ -917,6 +1097,7 @@
   }
 
   function currentPresetSeconds() {
+    if (timer.hold && timer.hold.seconds) return timer.hold.seconds;
     if (timer.stage && timer.stage.durationSec) return timer.stage.durationSec;
     if (timer.presetId === "custom") {
       return Math.max(1, (timer.customMin * 60) + timer.customSec);
@@ -1004,6 +1185,7 @@
     const sets = workingSets(found.exercise);
     hideToast();
     ui.selected = { exerciseId, setIndex };
+    timer.hold = null;
     timer.stage = {
       exerciseId,
       setIndex,
@@ -1022,6 +1204,36 @@
     timer.customSec = sec % 60;
     ui.sheet = { type: "timer" };
     timerStart();
+  }
+
+  function startHoldTimer(exerciseId, setIndex) {
+    const found = findExercise(exerciseId);
+    if (!found) return;
+    const sets = workingSets(found.exercise);
+    const set = sets[setIndex];
+    if (!set) return;
+    const sec = set.targetReps || set.reps || found.exercise.repMin || 30;
+    hideToast();
+    ui.selected = { exerciseId, setIndex };
+    timer.stage = null;
+    timer.nextOffer = null;
+    timer.hold = { exerciseId, setIndex, seconds: sec, label: found.exercise.name || "Hold" };
+    timer.justFinished = false;
+    timer.remainingMs = sec * 1000;
+    timer.presetId = "custom";
+    ui.sheet = { type: "timer" };
+    timerStart();
+  }
+
+  function completeHold(hold) {
+    const found = findExercise(hold.exerciseId);
+    if (!found) return;
+    const sets = workingSets(found.exercise).map((s) => ({ ...s }));
+    const set = sets[hold.setIndex];
+    if (!set) return;
+    set.reps = hold.seconds;
+    set.done = true;
+    writeWorkingSets(found.exercise, sets);
   }
 
   function completeStage(ctx) {
@@ -1128,7 +1340,8 @@
       timer.justFinished = true;
       stopInterval();
       releaseWakeLock();
-      if (timer.stage) {
+      if (timer.hold) completeHold(timer.hold);
+      else if (timer.stage) {
         completeStage(timer.stage);
         timer.nextOffer = computeNextOffer(timer.stage);
       }
@@ -1297,6 +1510,7 @@
     }
     if (act === "open-timer") {
       hideToast();
+      if (!timer.running) timer.hold = null;
       const pausedStage = !!(timer.stage && timer.remainingMs > 0 && !timer.justFinished &&
         timer.remainingMs < timer.stage.durationSec * 1000);
       if (!timer.running && !timer.justFinished && !pausedStage) {
@@ -1319,6 +1533,10 @@
       const i = Number(t.dataset.i);
       const found = findExercise(id);
       if (!found) return;
+      if (found.exercise.logUnit === "sec") {
+        startHoldTimer(id, i);
+        return;
+      }
       const sets = workingSets(found.exercise).map((s) => ({ ...s }));
       if (ui.selected && ui.selected.exerciseId === id && ui.selected.setIndex === i) {
         sets[i].done = !sets[i].done;
@@ -1341,6 +1559,25 @@
       render();
       return;
     }
+    if (act === "tap-side") {
+      const id = t.dataset.ex;
+      const i = Number(t.dataset.i);
+      const sideName = t.dataset.side === "R" ? "right" : "left";
+      const found = findExercise(id);
+      if (!found) return;
+      const sets = workingSets(found.exercise).map((s) => ({ ...s, left: { ...s.left }, right: { ...s.right } }));
+      const side = sets[i][sideName];
+      if (!side) return;
+      const same = ui.selected && ui.selected.exerciseId === id && ui.selected.setIndex === i && ui.selected.side === t.dataset.side;
+      side.done = same ? !side.done : true;
+      sets[i].done = !!(sets[i].left.done && sets[i].right.done);
+      sets[i].reps = sets[i].left.reps;
+      sets[i].weight = sets[i].left.weight;
+      ui.selected = { exerciseId: id, setIndex: i, side: t.dataset.side };
+      writeWorkingSets(found.exercise, sets);
+      render();
+      return;
+    }
     if (act === "step") {
       const id = t.dataset.ex;
       const i = Number(t.dataset.i);
@@ -1348,13 +1585,31 @@
       const dir = Number(t.dataset.dir);
       const found = findExercise(id);
       if (!found) return;
-      const sets = workingSets(found.exercise).map((s) => ({ ...s }));
-      if (field === "reps") sets[i].reps = Math.max(0, sets[i].reps + dir);
-      if (field === "weight") {
-        const step = found.exercise.weightStep || WEIGHT_STEP;
-        sets[i].weight = Math.max(0, sets[i].weight + dir * step);
+      const sets = workingSets(found.exercise).map((s) => ({
+        ...s,
+        left: s.left ? { ...s.left } : s.left,
+        right: s.right ? { ...s.right } : s.right
+      }));
+      const lrSide = found.exercise.sides === "lr" && ui.selected && ui.selected.side
+        ? sets[i][ui.selected.side === "R" ? "right" : "left"]
+        : null;
+      if (lrSide) {
+        if (field === "reps") lrSide.reps = Math.max(0, lrSide.reps + dir);
+        if (field === "weight") {
+          const step = found.exercise.weightStep || WEIGHT_STEP;
+          lrSide.weight = Math.max(0, lrSide.weight + dir * step);
+        }
+        sets[i].reps = sets[i].left.reps;
+        sets[i].weight = sets[i].left.weight;
+        sets[i].done = !!(sets[i].left.done && sets[i].right.done);
+      } else {
+        if (field === "reps") sets[i].reps = Math.max(0, sets[i].reps + dir);
+        if (field === "weight") {
+          const step = found.exercise.weightStep || WEIGHT_STEP;
+          sets[i].weight = Math.max(0, sets[i].weight + dir * step);
+        }
       }
-      ui.selected = { exerciseId: id, setIndex: i };
+      ui.selected = { exerciseId: id, setIndex: i, side: ui.selected && ui.selected.side };
       writeWorkingSets(found.exercise, sets);
       render();
       return;
