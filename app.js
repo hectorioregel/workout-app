@@ -1,22 +1,28 @@
 (() => {
   const STORAGE_KEY = "hector-workout-v1";
   const WEIGHT_STEP = 5;
-  const PRESETS = [
-    { id: "30", label: "30s", seconds: 30 },
-    { id: "60", label: "60s", seconds: 60 },
-    { id: "90", label: "90s", seconds: 90 },
-    { id: "2m", label: "2m", seconds: 120 },
-    { id: "3m", label: "3m", seconds: 180 },
-    { id: "custom", label: "Custom", seconds: 0 }
-  ];
+  const WORKING_WEIGHTS = {
+    "a-squat": 55,
+    "a-press": 50,
+    "c-incline": 45,
+    "a-row": 55,
+    "c-tri": 45,
+    "b-rdl": 45,
+    "c-thrust": 55,
+    "b-press": 30,
+    "c-curl": 40,
+    "c-calf": 30,
+    "b-ext": 160,
+    "a-curl": 160
+  };
+  const TREAD_SPEEDS = { Walk: 3.5, Jog: 7.1, Sprint: 10.5 };
 
   const ui = {
-    view: "home", // home | group
+    view: "home",
     groupId: null,
-    selected: null, // { exerciseId, setIndex }
-    sheet: null, // { type, ... }
-    toastTimer: 0,
-    runId: null
+    selected: null,
+    sheet: null,
+    toastTimer: 0
   };
 
   const timer = {
@@ -24,29 +30,11 @@
     endAt: 0,
     running: false,
     interval: 0,
-    presetId: "60",
-    customMin: 1,
-    customSec: 0,
     wakeLock: null,
     justFinished: false,
     stage: null,
-    nextOffer: null
-  };
-
-  const track = {
-    status: "idle", // idle | running | paused
-    watchId: null,
-    points: [],
-    elapsedBefore: 0,
-    segmentStart: 0,
-    tick: 0,
-    gpsError: "",
-    waitingGps: false,
-    map: null,
-    line: null,
-    startMarker: null,
-    endMarker: null,
-    wakeLock: null
+    nextOffer: null,
+    hold: null
   };
 
   function uid() {
@@ -91,7 +79,6 @@
       repMax: opts.repMax || 0,
       weightStep: opts.step || 0,
       logUnit: opts.unit || "reps",
-      sides: opts.sides || "",
       optionalHome: !!opts.optionalHome
     };
   }
@@ -124,7 +111,7 @@
           db("Goblet squat to box", "a-squat", 3, 10, 12, 55, "one 55 lb dumbbell"),
           db("DB bench/floor press", "a-press", 3, 8, 12, 50, ""),
           db("Incline DB press", "c-incline", 3, 8, 12, 45, ""),
-          ex("One-arm DB row", { id: "a-row", sets: 3, repMin: 10, repMax: 12, reps: 10, weight: 55, step: 5, notes: "L/R", sides: "lr" }),
+          ex("One-arm DB row", { id: "a-row", sets: 3, repMin: 10, repMax: 12, reps: 10, weight: 55, step: 5, notes: "per side" }),
           ex("Overhead triceps extension", { id: "c-tri", sets: 2, repMin: 10, repMax: 12, reps: 10, weight: 45, step: 5, notes: "one 45 lb dumbbell" }),
           ex("Plank", { id: "a-plank", bodyweight: true, sets: 3, repMin: 30, repMax: 45, reps: 30, unit: "sec", notes: "log seconds" })
         ]
@@ -162,15 +149,13 @@
   function defaultData() {
     return {
       version: 1,
-      planRev: 12,
+      planRev: 13,
       groups: phase1Groups(),
       activeSession: null,
       installTipDismissed: false,
-      runs: []
+      mobilityLog: []
     };
   }
-
-  const WEIGHT_FLOORS = { "a-squat": 55, "b-ext": 160, "a-curl": 160 };
 
   let data = load();
 
@@ -189,163 +174,65 @@
   }
 
   function migrate(parsed) {
-    let changed = false;
-    if (!Array.isArray(parsed.runs)) {
-      parsed.runs = [];
-      changed = true;
+    if (parsed && parsed.planRev >= 13 && Array.isArray(parsed.groups)) {
+      return { data: parsed, changed: false };
     }
-    parsed.groups = parsed.groups || [];
-    if (!parsed.groups.some((g) => g.id === "day-a")) {
-      parsed.groups = phase1Groups().concat(parsed.groups);
-      parsed.planRev = 9;
-      changed = true;
-    }
-    if (parsed.planRev == null || parsed.planRev < 9) {
-      layoutPhase1(parsed);
-      parsed.planRev = 9;
-      changed = true;
-    }
-    if (parsed.planRev < 11) {
-      retireTwoArmRow(parsed);
-      parsed.planRev = 11;
-      changed = true;
-    }
-    if (parsed.planRev < 12) {
-      addGymFinishers(parsed);
-      parsed.planRev = 12;
-      changed = true;
-    }
-    if (applyWeightFloors(parsed)) changed = true;
-    for (const group of parsed.groups) {
-      if ((group.id === "arms" || group.id === "abs" || group.id === "legs") && !group.archived) {
-        group.archived = true;
-        changed = true;
-      }
-      for (const exercise of group.exercises || []) {
-        if (exercise && exercise.name === "Leg machine up") {
-          exercise.name = "Leg machine";
-          changed = true;
+    return { data: freshStart(parsed || {}), changed: true };
+  }
+
+  function freshStart(parsed) {
+    const kept = storedWorking(parsed);
+    const groups = phase1Groups();
+    for (const group of groups) {
+      for (const exercise of group.exercises) {
+        exercise.history = [];
+        const floor = WORKING_WEIGHTS[exercise.id];
+        if (floor != null) {
+          const weight = Math.max(floor, kept.weights[exercise.id] || 0);
+          exercise.sets.forEach((set) => { set.weight = weight; });
+        }
+        if (exercise.id === "c-treadmill") {
+          exercise.stages.forEach((stage) => {
+            const base = TREAD_SPEEDS[stage.label] || stageSpeedNumber(stage.setting);
+            stage.setting = formatSpeed(Math.max(base, kept.speeds[stage.label] || 0));
+          });
         }
       }
     }
-    return { data: parsed, changed };
-  }
-
-  function layoutPhase1(parsed) {
-    const order = {
-      "day-a": ["a-squat", "a-press", "c-incline", "a-row", "c-tri", "a-plank"],
-      "day-b": ["b-rdl", "c-thrust", "b-press", "c-row", "c-curl", "c-calf", "b-bug"],
-      "day-c": ["b-ext", "a-curl", "c-treadmill"]
+    return {
+      version: 1,
+      planRev: 13,
+      groups,
+      activeSession: null,
+      installTipDismissed: !!parsed.installTipDismissed,
+      mobilityLog: []
     };
-    const places = { "day-a": "Home", "day-b": "Home", "day-c": "Gym" };
-    const names = { "day-a": "Day A", "day-b": "Day B", "day-c": "Day C" };
-    const wanted = new Set(Object.values(order).flat().concat("b-push"));
-    const pulled = {};
-    for (const group of parsed.groups) {
-      group.exercises = (group.exercises || []).filter((exercise) => {
-        if (exercise && wanted.has(exercise.id)) {
-          pulled[exercise.id] = exercise;
-          return false;
-        }
-        return true;
-      });
-    }
-    const fresh = {};
-    phase1Groups().forEach((group) => {
-      group.exercises.forEach((exercise) => { fresh[exercise.id] = exercise; });
-    });
-    Object.keys(order).forEach((id) => {
-      let group = parsed.groups.find((g) => g.id === id);
-      if (!group) {
-        group = { id, name: names[id], mark: id.slice(-1).toUpperCase(), exercises: [] };
-        parsed.groups.unshift(group);
-      }
-      const leftovers = group.exercises || [];
-      group.name = names[id];
-      group.mark = id.slice(-1).toUpperCase();
-      group.place = places[id];
-      group.exercises = order[id].map((eid) => tuneExercise(pulled[eid] || fresh[eid], parsed)).filter(Boolean).concat(leftovers);
-    });
-    const dayB = parsed.groups.find((g) => g.id === "day-b");
-    const push = tuneExercise(pulled["b-push"] || fresh["b-push"], parsed);
-    push.optionalHome = true;
-    if (!dayB.exercises.some((e) => e.id === "b-push")) dayB.exercises.push(push);
   }
 
-  function addGymFinishers(parsed) {
-    const dayC = (parsed.groups || []).find((group) => group.id === "day-c");
-    if (!dayC) return;
-    dayC.exercises = dayC.exercises || [];
-    if (dayC.exercises.some((exercise) => exercise && exercise.id === "c-superman")) return;
-    const fresh = phase1Groups().find((group) => group.id === "day-c").exercises.find((exercise) => exercise.id === "c-superman");
-    dayC.exercises.push(fresh);
-  }
-
-  function retireTwoArmRow(parsed) {
+  function storedWorking(parsed) {
+    const weights = {};
+    const speeds = {};
     for (const group of parsed.groups || []) {
       for (const exercise of group.exercises || []) {
-        if (exercise && exercise.id === "c-row") exercise.retired = true;
-      }
-    }
-  }
-
-  function applyWeightFloors(parsed) {
-    if (parsed.weightFloorRev === 10) return false;
-    for (const group of parsed.groups || []) {
-      for (const exercise of group.exercises || []) {
-        const floor = WEIGHT_FLOORS[exercise.id];
-        if (!floor) continue;
-        (exercise.sets || []).forEach((set) => raiseWeight(set, floor));
-        if (exercise.id === "a-squat" && exercise.notes === "one 50 lb dumbbell") {
-          exercise.notes = "one 55 lb dumbbell";
+        if (!exercise) continue;
+        if (WORKING_WEIGHTS[exercise.id] != null) {
+          let best = weights[exercise.id] || 0;
+          for (const set of exercise.sets || []) {
+            best = Math.max(best, set.weight || 0, set.rightWeight || 0);
+            if (set.left) best = Math.max(best, set.left.weight || 0);
+            if (set.right) best = Math.max(best, set.right.weight || 0);
+          }
+          weights[exercise.id] = best;
         }
-        const live = parsed.activeSession && parsed.activeSession.exercises && parsed.activeSession.exercises[exercise.id];
-        if (live && (live.sets || []).some((set) => weightBelow(set, floor))) parsed.upgradeWeightFloors = true;
-      }
-    }
-    parsed.weightFloorRev = 10;
-    return true;
-  }
-
-  function raiseWeight(set, floor) {
-    if ((set.weight || 0) < floor) set.weight = floor;
-    if (set.rightWeight != null && set.rightWeight < floor) set.rightWeight = floor;
-  }
-
-  function weightBelow(set, floor) {
-    return (set.weight || 0) < floor
-      || (set.rightWeight != null && set.rightWeight < floor)
-      || (set.left && (set.left.weight || 0) < floor)
-      || (set.right && (set.right.weight || 0) < floor);
-  }
-
-  function tuneExercise(exercise, parsed) {
-    if (!exercise) return exercise;
-    const meta = {
-      "a-row": { sides: "lr", notes: "L/R", repMin: 10, repMax: 12, weightStep: 5 },
-      "a-plank": { logUnit: "sec", repMin: 30, repMax: 45, notes: "log seconds" },
-      "b-bug": { sides: "", notes: "per side", repMin: 10, repMax: 10 },
-      "b-push": { optionalHome: true, notes: "2 reps short of failure" },
-      "c-thrust": { notes: "one 55 lb dumbbell · 2 s squeeze" },
-      "c-tri": { notes: "one 45 lb dumbbell" },
-      "c-calf": { notes: "30 lb each hand · 1 s pause" },
-      "a-squat": { notes: "one 55 lb dumbbell" }
-    }[exercise.id];
-    if (meta) Object.assign(exercise, meta);
-    if (exercise.id === "a-row" && exercise.sets) {
-      let lifted = false;
-      exercise.sets.forEach((set) => {
-        if (!set.weight || set.weight === 45) {
-          set.weight = 55;
-          lifted = true;
+        if (exercise.id === "c-treadmill") {
+          for (const stage of exercise.stages || []) {
+            const n = stageSpeedNumber(stage.setting);
+            if (!speeds[stage.label] || n > speeds[stage.label]) speeds[stage.label] = n;
+          }
         }
-        if (set.rightWeight === 45) set.rightWeight = 55;
-      });
-      if (lifted && parsed && parsed.activeSession && parsed.activeSession.exercises && parsed.activeSession.exercises["a-row"]) {
-        parsed.upgradeRow55 = true;
       }
     }
-    return exercise;
+    return { weights, speeds };
   }
 
   function persist() {
@@ -404,33 +291,7 @@
         };
       });
     }
-    if (exercise.sides === "lr") {
-      sets = sets.map((s) => withSides(s));
-    }
     return sets;
-  }
-
-  function withSides(set) {
-    const reps = set.targetReps != null ? set.targetReps : (set.reps || 0);
-    const weight = set.weight || 0;
-    const left = set.left
-      ? { reps: set.left.reps, weight: set.left.weight, done: !!set.left.done }
-      : { reps: set.reps != null && set.reps !== reps ? set.reps : reps, weight, done: false };
-    const right = set.right
-      ? { reps: set.right.reps, weight: set.right.weight, done: !!set.right.done }
-      : {
-        reps: set.rightReps != null ? set.rightReps : reps,
-        weight: set.rightWeight != null ? set.rightWeight : weight,
-        done: false
-      };
-    return {
-      ...set,
-      left,
-      right,
-      reps: left.reps,
-      weight: left.weight,
-      done: !!(left.done && right.done)
-    };
   }
 
   function normalizeStagesDone(exercise, set) {
@@ -542,12 +403,6 @@
       const sets = entry.sets || [];
       const completed = sets.filter((s) => s.done).map((s) => {
         const row = { reps: s.reps, weight: s.weight };
-        if (s.left && s.right) {
-          row.left = { reps: s.left.reps, weight: s.left.weight };
-          row.right = { reps: s.right.reps, weight: s.right.weight };
-          row.reps = s.left.reps;
-          row.weight = s.left.weight;
-        }
         if (found.exercise.stages && found.exercise.stages.length) {
           row.stages = found.exercise.stages.map((st, i) => ({
             label: st.label || "Stage",
@@ -569,29 +424,10 @@
       }
       const earned = earnedOverload(found.exercise, completed);
       const bump = earned ? found.exercise.weightStep : 0;
-      const lr = found.exercise.sides === "lr";
-      found.exercise.sets = sets.map((s, i) => {
-        const leftW = lr ? (s.left ? s.left.weight : s.weight) : s.weight;
-        const rightW = lr && s.right ? s.right.weight : leftW;
-        let weight = (leftW || 0) + bump;
-        let rightWeight = (rightW || 0) + bump;
-        if (found.exercise.id === "a-row" && data.upgradeRow55 && weight === 45) {
-          weight = 55;
-          if (rightWeight === 45) rightWeight = 55;
-        }
-        const floor = data.upgradeWeightFloors && WEIGHT_FLOORS[found.exercise.id];
-        if (floor && weight < floor) weight = floor;
-        if (floor && rightWeight < floor) rightWeight = floor;
-        const row = {
-          targetReps: found.exercise.stages ? (found.exercise.sets[i]?.targetReps || 0) : (lr && s.left ? s.left.reps : s.reps),
-          weight
-        };
-        if (lr) {
-          row.rightReps = s.right ? s.right.reps : row.targetReps;
-          row.rightWeight = rightWeight;
-        }
-        return row;
-      });
+      found.exercise.sets = sets.map((s, i) => ({
+        targetReps: found.exercise.stages ? (found.exercise.sets[i]?.targetReps || 0) : s.reps,
+        weight: (s.weight || 0) + bump
+      }));
       found.exercise.overload = earned ? true : (completed.length ? false : !!found.exercise.overload);
       if (sets.some((s) => s.weight > 0)) found.exercise.isBodyweight = false;
     }
@@ -605,8 +441,6 @@
         loggedMobility = true;
       }
     }
-    if (data.upgradeRow55) delete data.upgradeRow55;
-    if (data.upgradeWeightFloors) delete data.upgradeWeightFloors;
     data.activeSession = null;
     persist();
     if (!silent && (saved || loggedMobility)) toast("Workout saved");
@@ -624,9 +458,6 @@
   function earnedOverload(exercise, completed) {
     if (!exercise.repMax || !exercise.weightStep) return false;
     if (!completed.length || completed.length < (exercise.sets || []).length) return false;
-    if (exercise.sides === "lr") {
-      return completed.every((s) => s.left && s.right && s.left.reps >= exercise.repMax && s.right.reps >= exercise.repMax);
-    }
     return completed.every((s) => s.reps >= exercise.repMax);
   }
 
@@ -663,22 +494,13 @@
       return {
         date: last.date,
         weights: last.sets.map((s) => s.weight),
-        reps: last.sets.map((s) => s.reps),
-        left: last.sets.map((s) => s.left || null),
-        right: last.sets.map((s) => s.right || null)
+        reps: last.sets.map((s) => s.reps)
       };
     }
     return null;
   }
 
   function lastSummary(exercise, last) {
-    if (exercise.sides === "lr" && last.left && last.left[0]) {
-      const l = last.left[0];
-      const r = last.right[0] || l;
-      const lw = l.weight ? l.weight + " lb" : "BW";
-      const rw = r.weight ? r.weight + " lb" : "BW";
-      return `L ${l.reps}×${lw} R ${r.reps}×${rw}`;
-    }
     const reps = last.reps.join("/");
     if (exercise.logUnit === "sec") return reps + " s";
     return reps + "×" + (last.weights[0] ? last.weights[0] + " lb" : "BW");
@@ -711,30 +533,10 @@
   function render() {
     rolloverSessionIfNeeded();
     const app = document.getElementById("app");
-    const live = document.getElementById("run-live");
-    if (ui.view === "run" && live && track.status !== "idle" && !ui.forceRunRender) {
-      updateRunLiveDom();
-      renderSheet();
-      updateTimerButtons();
-      return;
-    }
-    ui.forceRunRender = false;
-    if (ui.view !== "run") destroyRunMap();
     if (ui.view === "group") app.innerHTML = renderGroup();
-    else if (ui.view === "run") app.innerHTML = renderRun();
-    else if (ui.view === "run-detail") app.innerHTML = renderRunDetail();
     else app.innerHTML = renderHome();
-    if (ui.view === "run") mountLiveMap();
-    if (ui.view === "run-detail") mountDetailMap();
     renderSheet();
     updateTimerButtons();
-  }
-
-  function timerButtonHtml() {
-    if (timer.running) {
-      return `<button class="icon-btn running" data-act="open-timer" aria-label="Open timer">${formatTime(timer.remainingMs)}</button>`;
-    }
-    return `<button class="icon-btn" data-act="open-timer" aria-label="Timer">${iconTimer()}</button>`;
   }
 
   function renderHome() {
@@ -758,7 +560,7 @@
         ? `${progress.done}/${progress.total} sets today · ${count} exercises`
         : `${count} exercises`);
       const letter = g.mark || g.name[0];
-      return `<button class="group-card ${escapeHtml(g.id)}${g.archived ? " archived" : ""}" data-act="open-group" data-id="${escapeHtml(g.id)}">
+      return `<button class="group-card ${escapeHtml(g.id)}" data-act="open-group" data-id="${escapeHtml(g.id)}">
         <div class="group-mark">${escapeHtml(letter)}</div>
         <div class="group-meta">
           <h2>${escapeHtml(g.name)}</h2>
@@ -767,11 +569,7 @@
         <div class="chev">›</div>
       </button>`;
     };
-    const current = data.groups.filter((g) => !g.archived).map(card).join("");
-    const previous = data.groups.filter((g) => g.archived);
-    const previousHtml = previous.length
-      ? `<h2 class="prev-head">Previous plan</h2>${previous.map(card).join("")}`
-      : "";
+    const current = data.groups.map(card).join("");
 
     const tip = data.installTipDismissed ? "" : `
       <div class="tip install-tip">
@@ -788,13 +586,10 @@
         <div style="flex:1">
           <h1><span class="sub">${escapeHtml(dateLabel)}</span>Workout</h1>
         </div>
-        ${timerButtonHtml()}
       </header>
       <div class="page">
         ${banner}
         ${current}
-        ${previousHtml}
-        ${renderRunCard()}
         <div class="home-actions">
           <button class="btn" data-act="export">Export</button>
           <button class="btn" data-act="import">Import</button>
@@ -839,7 +634,6 @@
       const shared = findExercise("b-push");
       if (shared && !main.some((exercise) => exercise.id === shared.exercise.id)) main.push(shared.exercise);
     }
-    const earlier = group.exercises.filter((exercise) => exercise.retired && (exercise.history || []).length);
     const finishers = group.place === "Home"
       ? allExercises().map((row) => row.exercise).filter((exercise, index, list) =>
         exercise.optionalHome && list.findIndex((other) => other.id === exercise.id) === index)
@@ -851,37 +645,22 @@
     const finisherHtml = finishers.length
       ? `<h2 class="prev-head">Optional</h2>${finishers.map((exercise) => renderExercise(exercise)).join("")}`
       : "";
-    const earlierHtml = earlier.length
-      ? `<h2 class="prev-head">Earlier</h2>${earlier.map((exercise) => renderRetired(exercise)).join("")}`
-      : "";
     return `
       <header class="topbar">
         <button class="icon-btn" data-act="go-home" aria-label="Back">${iconBack()}</button>
         <h1>${escapeHtml(group.name)}</h1>
-        ${timerButtonHtml()}
       </header>
       <div class="page group-page">
-        ${group.archived ? "" : `<p class="day-rest">Rest 60-90 s</p>
-        <label class="warmup"><input type="checkbox" data-act="toggle-mobility" ${mobilityChecked(group.id) ? "checked" : ""}> Mobility warm-up (3-5 min)</label>`}
+        <p class="day-rest">Rest 60-90 s</p>
+        <label class="warmup"><input type="checkbox" data-act="toggle-mobility" ${mobilityChecked(group.id) ? "checked" : ""}> Mobility warm-up (3-5 min)</label>
         ${cards}
         ${finisherHtml}
-        ${earlierHtml}
         <button class="add-ex" data-act="add-exercise" data-group="${escapeHtml(group.id)}">+ Add exercise</button>
         <div class="row-actions">
           ${stats.doneSets ? `<button class="btn" data-act="clear-session">Clear</button>` : ""}
           <button class="btn primary" data-act="save-workout">Save workout</button>
         </div>
       </div>`;
-  }
-
-  function renderRetired(exercise) {
-    return `<article class="ex-card" data-ex="${exercise.id}">
-      <div class="ex-head"><h3>${escapeHtml(exercise.name)}</h3></div>
-      <p class="ex-note">Kept so earlier sessions stay available.</p>
-      <div class="ex-tools">
-        <button class="linkish" data-act="open-history" data-ex="${exercise.id}">History</button>
-      </div>
-    </article>`;
   }
 
   function renderExercise(exercise, extraNote) {
@@ -896,19 +675,7 @@
     const isTimed = !!(exercise.stages && exercise.stages.length);
     const setIndex = isTimed ? currentSetIndex(exercise) : selected;
     const stages = isTimed ? renderStages(exercise, sets, setIndex) : "";
-    const setBtns = isTimed ? "" : exercise.sides === "lr" ? sets.map((s, i) => {
-      const sideBtn = (side, value) => {
-        const cls = ["set-btn"];
-        if (value.done) cls.push("done");
-        if (selected === i && ui.selected.side === side) cls.push("selected");
-        return `<button class="${cls.join(" ")}" data-act="tap-side" data-ex="${exercise.id}" data-i="${i}" data-side="${side}">
-          <span class="lbl">${side}</span>
-          <span class="reps">${value.reps}</span>
-          <span class="wt">${value.weight ? value.weight + " lb" : "BW"}</span>
-        </button>`;
-      };
-      return `<div class="lr-set"><span class="lr-label">Set ${i + 1}</span>${sideBtn("L", s.left)}${sideBtn("R", s.right)}</div>`;
-    }).join("") : sets.map((s, i) => {
+    const setBtns = isTimed ? "" : sets.map((s, i) => {
       const cls = ["set-btn"];
       if (s.done) cls.push("done");
       if (selected === i) cls.push("selected");
@@ -921,15 +688,12 @@
       </button>`;
     }).join("");
 
-    const showAdjust = selected != null && !isTimed && exercise.sides !== "lr" ? true
-      : selected != null && exercise.sides === "lr" && ui.selected.side;
-    const cur = selected != null ? sets[selected] : null;
-    const sideCur = cur && exercise.sides === "lr" ? cur[ui.selected.side === "R" ? "right" : "left"] : cur;
-    const shown = sideCur || cur;
+    const showAdjust = selected != null && !isTimed;
+    const shown = selected != null ? sets[selected] : null;
     const adjust = showAdjust && shown ? `
       <div class="adjust">
         <div class="stepper-wrap">
-          <div class="kind-lbl">${isSec ? "Seconds" : "Reps"}${exercise.sides === "lr" ? " " + ui.selected.side : ""}</div>
+          <div class="kind-lbl">${isSec ? "Seconds" : "Reps"}</div>
           <div class="stepper">
             <button data-act="step" data-ex="${exercise.id}" data-i="${selected}" data-field="reps" data-dir="-1" aria-label="Decrease reps">−</button>
             <div class="val">${shown.reps}</div>
@@ -1036,28 +800,6 @@
     const hold = timer.hold;
     const display = formatTime(timer.justFinished && !timer.running ? 0 : (timer.running || timer.remainingMs ? timer.remainingMs : currentPresetSeconds() * 1000));
     const cls = timer.justFinished && !timer.running ? "timer-display done" : "timer-display";
-    const presets = stage || hold ? "" : `<div class="presets">${PRESETS.map((p) =>
-      `<button class="preset${timer.presetId === p.id ? " on" : ""}" data-act="timer-preset" data-id="${p.id}">${p.label}</button>`
-    ).join("")}</div>`;
-    const custom = !stage && !hold && timer.presetId === "custom" ? `
-      <div class="custom-row">
-        <div class="stepper-wrap">
-          <div class="kind-lbl">Minutes</div>
-          <div class="stepper">
-            <button data-act="custom-step" data-field="min" data-dir="-1">−</button>
-            <div class="val">${timer.customMin}</div>
-            <button data-act="custom-step" data-field="min" data-dir="1">+</button>
-          </div>
-        </div>
-        <div class="stepper-wrap">
-          <div class="kind-lbl">Seconds</div>
-          <div class="stepper">
-            <button data-act="custom-step" data-field="sec" data-dir="-1">−</button>
-            <div class="val">${String(timer.customSec).padStart(2, "0")}</div>
-            <button data-act="custom-step" data-field="sec" data-dir="1">+</button>
-          </div>
-        </div>
-      </div>` : "";
     const startLabel = timer.running ? "Pause" : (timer.remainingMs > 0 && !timer.justFinished ? "Resume" : "Start");
     const title = hold ? escapeHtml(hold.label) : stage ? escapeHtml(stage.label) : "Timer";
     const sub = hold
@@ -1077,8 +819,6 @@
       ${sub}
       <div class="${cls}" id="timer-display">${display}</div>
       ${finishedNote}
-      ${presets}
-      ${custom}
       <div class="timer-controls">
         <button class="btn" data-act="timer-reset">Reset</button>
         <button class="btn primary" data-act="timer-toggle" style="grid-column: span 2">${startLabel}</button>
@@ -1091,9 +831,7 @@
     const exercise = found.exercise;
     const items = (exercise.history || []).map((h) => {
       const rows = h.sets.map((s, i) => {
-        const right = (s.left && s.right)
-          ? `L ${s.left.reps}×${s.left.weight || "BW"} · R ${s.right.reps}×${s.right.weight || "BW"}`
-          : (s.stages && s.stages.length)
+        const right = (s.stages && s.stages.length)
           ? s.stages.map((st) => (st.label || "Stage") + (st.setting ? " @ " + st.setting : "")).join(" · ")
           : (exercise.stages
             ? "Completed"
@@ -1200,11 +938,7 @@
   function currentPresetSeconds() {
     if (timer.hold && timer.hold.seconds) return timer.hold.seconds;
     if (timer.stage && timer.stage.durationSec) return timer.stage.durationSec;
-    if (timer.presetId === "custom") {
-      return Math.max(1, (timer.customMin * 60) + timer.customSec);
-    }
-    const p = PRESETS.find((x) => x.id === timer.presetId);
-    return p ? p.seconds : 60;
+    return 30;
   }
 
   function updateTimerButtons() {
@@ -1214,13 +948,6 @@
       display.textContent = formatTime(ms);
       display.classList.toggle("done", !!(timer.justFinished && !timer.running));
     }
-    document.querySelectorAll(".icon-btn.running, .icon-btn[data-act='open-timer']").forEach((btn) => {
-      if (timer.running) {
-        btn.classList.add("running");
-        btn.textContent = formatTime(timer.remainingMs);
-        btn.setAttribute("aria-label", "Open timer");
-      }
-    });
   }
 
   /* ---------- timer logic ---------- */
@@ -1300,9 +1027,6 @@
     timer.nextOffer = null;
     timer.justFinished = false;
     timer.remainingMs = sec * 1000;
-    timer.presetId = "custom";
-    timer.customMin = Math.floor(sec / 60);
-    timer.customSec = sec % 60;
     ui.sheet = { type: "timer" };
     timerStart();
   }
@@ -1321,7 +1045,6 @@
     timer.hold = { exerciseId, setIndex, seconds: sec, label: found.exercise.name || "Hold" };
     timer.justFinished = false;
     timer.remainingMs = sec * 1000;
-    timer.presetId = "custom";
     ui.sheet = { type: "timer" };
     timerStart();
   }
@@ -1503,10 +1226,6 @@
         tick();
         requestWakeLock();
       }
-      if (track.status === "running") {
-        requestRunWakeLock();
-        updateRunLiveDom();
-      }
     }
   });
 
@@ -1609,20 +1328,6 @@
       render();
       return;
     }
-    if (act === "open-timer") {
-      hideToast();
-      if (!timer.running) timer.hold = null;
-      const pausedStage = !!(timer.stage && timer.remainingMs > 0 && !timer.justFinished &&
-        timer.remainingMs < timer.stage.durationSec * 1000);
-      if (!timer.running && !timer.justFinished && !pausedStage) {
-        timer.stage = null;
-        timer.nextOffer = null;
-      }
-      if (!timer.running && !timer.remainingMs) timer.remainingMs = currentPresetSeconds() * 1000;
-      ui.sheet = { type: "timer" };
-      render();
-      return;
-    }
     if (act === "close-sheet") {
       if (ui.sheet && ui.sheet.type === "import-confirm") ui.pendingImport = null;
       ui.sheet = null;
@@ -1660,25 +1365,6 @@
       render();
       return;
     }
-    if (act === "tap-side") {
-      const id = t.dataset.ex;
-      const i = Number(t.dataset.i);
-      const sideName = t.dataset.side === "R" ? "right" : "left";
-      const found = findExercise(id);
-      if (!found) return;
-      const sets = workingSets(found.exercise).map((s) => ({ ...s, left: { ...s.left }, right: { ...s.right } }));
-      const side = sets[i][sideName];
-      if (!side) return;
-      const same = ui.selected && ui.selected.exerciseId === id && ui.selected.setIndex === i && ui.selected.side === t.dataset.side;
-      side.done = same ? !side.done : true;
-      sets[i].done = !!(sets[i].left.done && sets[i].right.done);
-      sets[i].reps = sets[i].left.reps;
-      sets[i].weight = sets[i].left.weight;
-      ui.selected = { exerciseId: id, setIndex: i, side: t.dataset.side };
-      writeWorkingSets(found.exercise, sets);
-      render();
-      return;
-    }
     if (act === "step") {
       const id = t.dataset.ex;
       const i = Number(t.dataset.i);
@@ -1686,31 +1372,13 @@
       const dir = Number(t.dataset.dir);
       const found = findExercise(id);
       if (!found) return;
-      const sets = workingSets(found.exercise).map((s) => ({
-        ...s,
-        left: s.left ? { ...s.left } : s.left,
-        right: s.right ? { ...s.right } : s.right
-      }));
-      const lrSide = found.exercise.sides === "lr" && ui.selected && ui.selected.side
-        ? sets[i][ui.selected.side === "R" ? "right" : "left"]
-        : null;
-      if (lrSide) {
-        if (field === "reps") lrSide.reps = Math.max(0, lrSide.reps + dir);
-        if (field === "weight") {
-          const step = found.exercise.weightStep || WEIGHT_STEP;
-          lrSide.weight = Math.max(0, lrSide.weight + dir * step);
-        }
-        sets[i].reps = sets[i].left.reps;
-        sets[i].weight = sets[i].left.weight;
-        sets[i].done = !!(sets[i].left.done && sets[i].right.done);
-      } else {
-        if (field === "reps") sets[i].reps = Math.max(0, sets[i].reps + dir);
-        if (field === "weight") {
-          const step = found.exercise.weightStep || WEIGHT_STEP;
-          sets[i].weight = Math.max(0, sets[i].weight + dir * step);
-        }
+      const sets = workingSets(found.exercise).map((s) => ({ ...s }));
+      if (field === "reps") sets[i].reps = Math.max(0, sets[i].reps + dir);
+      if (field === "weight") {
+        const step = found.exercise.weightStep || WEIGHT_STEP;
+        sets[i].weight = Math.max(0, sets[i].weight + dir * step);
       }
-      ui.selected = { exerciseId: id, setIndex: i, side: ui.selected && ui.selected.side };
+      ui.selected = { exerciseId: id, setIndex: i };
       writeWorkingSets(found.exercise, sets);
       render();
       return;
@@ -1793,36 +1461,6 @@
       render();
       return;
     }
-    if (act === "timer-preset") {
-      timer.presetId = t.dataset.id;
-      if (!timer.running) {
-        timer.remainingMs = currentPresetSeconds() * 1000;
-        timer.justFinished = false;
-      }
-      render();
-      return;
-    }
-    if (act === "custom-step") {
-      const field = t.dataset.field;
-      const dir = Number(t.dataset.dir);
-      if (field === "min") timer.customMin = Math.max(0, Math.min(99, timer.customMin + dir));
-      if (field === "sec") {
-        let s = timer.customSec + dir * 5;
-        if (s >= 60) { timer.customMin = Math.min(99, timer.customMin + 1); s = 0; }
-        if (s < 0) {
-          if (timer.customMin > 0) { timer.customMin -= 1; s = 55; }
-          else s = 0;
-        }
-        timer.customSec = s;
-      }
-      if (timer.customMin === 0 && timer.customSec === 0) timer.customSec = 5;
-      if (!timer.running) {
-        timer.remainingMs = currentPresetSeconds() * 1000;
-        timer.justFinished = false;
-      }
-      render();
-      return;
-    }
     if (act === "stage-speed") {
       adjustStageSpeed(t.dataset.ex, Number(t.dataset.i), Number(t.dataset.dir));
       return;
@@ -1898,27 +1536,6 @@
       render();
       return;
     }
-    if (act === "open-run") {
-      ui.view = "run";
-      ui.runId = null;
-      ui.forceRunRender = true;
-      location.hash = "#/run";
-      render();
-      return;
-    }
-    if (act === "open-run-detail") {
-      const rec = findRun(t.dataset.id);
-      if (!rec) return;
-      ui.view = "run-detail";
-      ui.runId = rec.id;
-      location.hash = "#/run/" + rec.id;
-      render();
-      return;
-    }
-    if (act === "start-run") { return; }
-    if (act === "pause-run") { pauseRun(); return; }
-    if (act === "resume-run") { resumeRun(); return; }
-    if (act === "finish-run") { finishRun(); return; }
     if (act === "reload-app") {
       location.reload();
       return;
@@ -2032,419 +1649,14 @@
   function normalizeImported(parsed) {
     return migrate({
       version: 1,
+      planRev: parsed.planRev,
       groups: parsed.groups,
       activeSession: parsed.activeSession || null,
       installTipDismissed: !!parsed.installTipDismissed,
-      runs: Array.isArray(parsed.runs) ? parsed.runs : []
+      mobilityLog: Array.isArray(parsed.mobilityLog) ? parsed.mobilityLog : []
     }).data;
   }
 
-  /* ---------- outdoor run ---------- */
-
-  function findRun(id) {
-    return (data.runs || []).find((r) => r.id === id) || null;
-  }
-
-  function currentElapsed() {
-    if (track.status === "running") {
-      return track.elapsedBefore + Math.max(0, Date.now() - track.segmentStart);
-    }
-    return track.elapsedBefore;
-  }
-
-  function currentRunStats() {
-    const math = globalThis.RunMath;
-    return math.computeStats(track.points, currentElapsed());
-  }
-
-  function runSummaryLine() {
-    const math = globalThis.RunMath;
-    const stats = currentRunStats();
-    return math.formatElapsed(currentElapsed()) + " · " + math.formatMiles(stats.miles);
-  }
-
-  function renderRunCard() {
-    const runs = data.runs || [];
-    if (!runs.length) return "";
-    const n = runs.length;
-    return `<button class="group-card run" data-act="open-run">
-      <div class="group-mark">R</div>
-      <div class="group-meta">
-        <h2>Past runs</h2>
-        <p>${n} saved run${n === 1 ? "" : "s"}</p>
-      </div>
-      <div class="chev">›</div>
-    </button>`;
-  }
-
-  function renderRun() {
-    const runs = data.runs || [];
-    const history = runs.length
-      ? `<div class="run-list">${runs.map(runListItem).join("")}</div>`
-      : `<p class="empty">No saved runs.</p>`;
-    return `
-      <header class="topbar">
-        <button class="icon-btn" data-act="go-home" aria-label="Back">${iconBack()}</button>
-        <h1>Past runs</h1>
-        ${timerButtonHtml()}
-      </header>
-      <div class="page run-page">
-        ${history}
-      </div>`;
-  }
-
-  function runListItem(rec) {
-    const math = globalThis.RunMath;
-    return `<button class="run-item" data-act="open-run-detail" data-id="${escapeHtml(rec.id)}">
-      <div>
-        <h3>${escapeHtml(formatLongDate(rec.date))}</h3>
-        <p>${math.formatMiles(rec.distanceMiles)} · ${math.formatElapsed(rec.durationMs)} · ${math.formatMph(rec.avgSpeedMph)} · ${math.formatPace(rec.avgPaceSecPerMile)}</p>
-      </div>
-      <div class="chev">›</div>
-    </button>`;
-  }
-
-  function renderRunDetail() {
-    const rec = findRun(ui.runId);
-    if (!rec) {
-      return `<header class="topbar">
-        <button class="icon-btn" data-act="open-run" aria-label="Back">${iconBack()}</button>
-        <h1>Run</h1>${timerButtonHtml()}
-      </header><div class="page"><p class="empty">That run was not found.</p></div>`;
-    }
-    const math = globalThis.RunMath;
-    return `
-      <header class="topbar">
-        <button class="icon-btn" data-act="open-run" aria-label="Back">${iconBack()}</button>
-        <h1>${escapeHtml(formatLongDate(rec.date))}</h1>
-        ${timerButtonHtml()}
-      </header>
-      <div class="page run-page" id="run-detail" data-run="${escapeHtml(rec.id)}">
-        <div id="run-detail-map" class="run-detail-map" role="img" aria-label="Saved run route"></div>
-        <div class="run-stats">
-          <div class="run-stat wide"><div class="lbl">Time</div><div class="val">${math.formatElapsed(rec.durationMs)}</div></div>
-          <div class="run-stat"><div class="lbl">Distance</div><div class="val">${math.formatMiles(rec.distanceMiles)}</div></div>
-          <div class="run-stat"><div class="lbl">Avg speed</div><div class="val">${math.formatMph(rec.avgSpeedMph)}</div></div>
-          <div class="run-stat wide"><div class="lbl">Average pace</div><div class="val">${math.formatPace(rec.avgPaceSecPerMile)}</div></div>
-        </div>
-      </div>`;
-  }
-
-  function updateRunLiveDom() {
-    const math = globalThis.RunMath;
-    const stats = currentRunStats();
-    const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
-    set("run-elapsed", math.formatElapsed(currentElapsed()));
-    set("run-distance", math.formatMiles(stats.miles));
-    set("run-pace", math.formatPace(stats.currentPaceSecPerMile));
-    set("run-avg-pace", math.formatPace(stats.avgPaceSecPerMile));
-    set("run-avg-speed", math.formatMph(stats.avgSpeedMph));
-    const gps = document.getElementById("run-gps");
-    if (gps) {
-      gps.classList.toggle("err", !!track.gpsError);
-      gps.textContent = track.gpsError
-        ? track.gpsError
-        : (track.waitingGps ? "Waiting for GPS…" : (track.status === "paused" ? "Paused" : "Recording"));
-    }
-    refreshLiveLine();
-  }
-
-  function startRunTick() {
-    stopRunTick();
-    track.tick = setInterval(() => {
-      if (track.status === "running") updateRunLiveDom();
-    }, 250);
-  }
-
-  function stopRunTick() {
-    if (track.tick) clearInterval(track.tick);
-    track.tick = 0;
-  }
-
-  function startRun() {
-    if (!navigator.geolocation) {
-      toast("GPS is not available on this device");
-      return;
-    }
-    track.status = "running";
-    track.points = [];
-    track.elapsedBefore = 0;
-    track.segmentStart = Date.now();
-    track.gpsError = "";
-    track.waitingGps = true;
-    startWatch();
-    requestRunWakeLock();
-    startRunTick();
-    ui.forceRunRender = true;
-    ui.view = "run";
-    if (location.hash !== "#/run") location.hash = "#/run";
-    else render();
-  }
-
-  function pauseRun() {
-    if (track.status !== "running") return;
-    track.elapsedBefore = currentElapsed();
-    track.status = "paused";
-    stopWatch();
-    stopRunTick();
-    releaseRunWakeLock();
-    ui.forceRunRender = true;
-    render();
-  }
-
-  function resumeRun() {
-    if (track.status !== "paused") return;
-    track.status = "running";
-    track.segmentStart = Date.now();
-    track.gpsError = "";
-    track.waitingGps = true;
-    startWatch();
-    requestRunWakeLock();
-    startRunTick();
-    ui.forceRunRender = true;
-    render();
-  }
-
-  function finishRun() {
-    const stats = currentRunStats();
-    const elapsedMs = currentElapsed();
-    const tooShort = elapsedMs < 10000 && stats.miles < 0.02;
-    ui.sheet = {
-      type: "confirm",
-      title: tooShort ? "Discard this run?" : "Finish run?",
-      message: tooShort
-        ? "This run is too short to save and will be discarded."
-        : `${globalThis.RunMath.formatMiles(stats.miles)} in ${globalThis.RunMath.formatElapsed(elapsedMs)} will be saved to history.`,
-      okLabel: tooShort ? "Discard" : "Save run",
-      danger: tooShort,
-      onOk: () => { commitFinishRun(!tooShort); }
-    };
-    render();
-  }
-
-  function commitFinishRun(save) {
-    if (track.status === "running") {
-      track.elapsedBefore = currentElapsed();
-    }
-    stopWatch();
-    stopRunTick();
-    releaseRunWakeLock();
-    const elapsedMs = track.elapsedBefore;
-    const stats = globalThis.RunMath.computeStats(track.points, elapsedMs);
-    let saved = null;
-    if (save && (elapsedMs >= 10000 || stats.miles >= 0.02)) {
-      saved = {
-        id: uid(),
-        date: todayISO(),
-        startedAt: track.points[0] ? track.points[0].t : Date.now() - elapsedMs,
-        finishedAt: Date.now(),
-        durationMs: elapsedMs,
-        distanceMiles: stats.miles,
-        avgSpeedMph: stats.avgSpeedMph,
-        avgPaceSecPerMile: stats.avgPaceSecPerMile,
-        path: track.points.map((pt) => ({ lat: pt.lat, lng: pt.lng, t: pt.t }))
-      };
-      data.runs = data.runs || [];
-      data.runs.unshift(saved);
-      persist();
-    }
-    track.status = "idle";
-    track.points = [];
-    track.elapsedBefore = 0;
-    track.gpsError = "";
-    track.waitingGps = false;
-    ui.sheet = null;
-    ui.forceRunRender = true;
-    if (saved) {
-      ui.view = "run-detail";
-      ui.runId = saved.id;
-      location.hash = "#/run/" + saved.id;
-      toast("Run saved");
-    } else {
-      ui.view = "run";
-      ui.runId = null;
-      location.hash = "#/run";
-      toast("Run discarded");
-    }
-    render();
-  }
-
-  function startWatch() {
-    stopWatch();
-    track.watchId = navigator.geolocation.watchPosition(onGeo, onGeoError, {
-      enableHighAccuracy: true,
-      maximumAge: 1000,
-      timeout: 15000
-    });
-  }
-
-  function stopWatch() {
-    if (track.watchId != null && navigator.geolocation) {
-      navigator.geolocation.clearWatch(track.watchId);
-    }
-    track.watchId = null;
-  }
-
-  function onGeo(pos) {
-    if (track.status !== "running") return;
-    const coords = pos.coords || {};
-    const point = {
-      lat: coords.latitude,
-      lng: coords.longitude,
-      t: pos.timestamp || Date.now(),
-      accuracy: coords.accuracy
-    };
-    const prev = track.points[track.points.length - 1] || null;
-    const result = globalThis.RunMath.filterPoint(prev, point);
-    if (!result.accept) {
-      if (result.reason === "accuracy") {
-        track.gpsError = "GPS accuracy is low — move to open sky.";
-      } else if (track.gpsError && result.reason !== "accuracy") {
-        track.gpsError = "";
-      }
-      return;
-    }
-    track.gpsError = "";
-    track.waitingGps = false;
-    track.points.push({ lat: point.lat, lng: point.lng, t: point.t });
-    updateRunLiveDom();
-  }
-
-  function onGeoError(err) {
-    if (track.status !== "running") return;
-    const code = err && err.code;
-    if (code === 1) track.gpsError = "Location permission denied.";
-    else if (code === 2) track.gpsError = "Location unavailable. Try open sky.";
-    else if (code === 3) track.gpsError = "GPS timed out. Still trying…";
-    else track.gpsError = "Could not get a GPS fix.";
-    updateRunLiveDom();
-  }
-
-  async function requestRunWakeLock() {
-    try {
-      if (navigator.wakeLock && navigator.wakeLock.request) {
-        track.wakeLock = await navigator.wakeLock.request("screen");
-      }
-    } catch (err) { track.wakeLock = null; }
-  }
-
-  function releaseRunWakeLock() {
-    try { if (track.wakeLock) track.wakeLock.release(); } catch (err) { /* ignore */ }
-    track.wakeLock = null;
-  }
-
-  function latLngs(points) {
-    return (points || []).map((pt) => [pt.lat, pt.lng]);
-  }
-
-  function ensureLeafletIcons() {
-    if (typeof L === "undefined" || !L.Icon || !L.Icon.Default) return;
-    L.Icon.Default.mergeOptions({
-      iconUrl: "vendor/leaflet/images/marker-icon.png",
-      iconRetinaUrl: "vendor/leaflet/images/marker-icon-2x.png",
-      shadowUrl: "vendor/leaflet/images/marker-shadow.png"
-    });
-  }
-
-  function destroyRunMap() {
-    if (track.map) {
-      try { track.map.remove(); } catch (err) { /* ignore */ }
-    }
-    track.map = null;
-    track.line = null;
-    track.startMarker = null;
-    track.endMarker = null;
-  }
-
-  function addOsmLayer(map) {
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      attribution: "&copy; OpenStreetMap",
-      maxZoom: 19
-    }).addTo(map);
-  }
-
-  function mountLiveMap() {
-    const el = document.getElementById("run-map");
-    if (!el || typeof L === "undefined") return;
-    ensureLeafletIcons();
-    if (track.map) {
-      const container = track.map.getContainer && track.map.getContainer();
-      if (container === el) {
-        track.map.invalidateSize();
-        refreshLiveLine();
-        return;
-      }
-      destroyRunMap();
-    }
-    track.map = L.map(el, { zoomControl: true, attributionControl: true });
-    addOsmLayer(track.map);
-    if (track.points.length) {
-      track.map.setView([track.points[track.points.length - 1].lat, track.points[track.points.length - 1].lng], 16);
-    } else {
-      track.map.setView([20, 0], 2);
-    }
-    track.line = L.polyline(latLngs(track.points), { color: "#C8F542", weight: 4, opacity: 0.95 }).addTo(track.map);
-    refreshLiveLine();
-    setTimeout(() => { if (track.map) track.map.invalidateSize(); }, 80);
-  }
-
-  function routeDot(latlng, kind) {
-    const start = kind === "start";
-    return L.circleMarker(latlng, {
-      radius: start ? 8 : 7,
-      color: start ? "#F4F6F8" : "#C8F542",
-      weight: 2,
-      fillColor: "#C8F542",
-      fillOpacity: 1
-    });
-  }
-
-  function refreshLiveLine() {
-    if (!track.map || !track.line) return;
-    const pts = latLngs(track.points);
-    track.line.setLatLngs(pts);
-    if (!pts.length) return;
-    if (!track.startMarker) track.startMarker = routeDot(pts[0], "start").addTo(track.map);
-    else track.startMarker.setLatLng(pts[0]);
-    if (pts.length === 1) {
-      track.map.setView(pts[0], 16);
-    } else {
-      if (!track.endMarker) track.endMarker = routeDot(pts[pts.length - 1], "end").addTo(track.map);
-      else track.endMarker.setLatLng(pts[pts.length - 1]);
-      track.map.panTo(pts[pts.length - 1], { animate: false });
-    }
-  }
-
-  function mountDetailMap() {
-    const el = document.getElementById("run-detail-map");
-    if (!el || typeof L === "undefined") return;
-    ensureLeafletIcons();
-    const rec = findRun(ui.runId);
-    const map = L.map(el, { zoomControl: true, attributionControl: true });
-    addOsmLayer(map);
-    const pts = rec ? latLngs(rec.path || []) : [];
-    if (pts.length > 1) {
-      const line = L.polyline(pts, { color: "#C8F542", weight: 4 }).addTo(map);
-      routeDot(pts[0], "start").addTo(map);
-      routeDot(pts[pts.length - 1], "end").addTo(map);
-      map.fitBounds(line.getBounds(), { padding: [24, 24] });
-    } else if (pts.length === 1) {
-      routeDot(pts[0], "start").addTo(map);
-      map.setView(pts[0], 16);
-    } else {
-      map.setView([20, 0], 2);
-    }
-    setTimeout(() => map.invalidateSize(), 80);
-    // store so destroyRunMap can clean if we reuse track.map? use a separate handle
-    if (track.map) destroyRunMap();
-    track.map = map;
-  }
-
-
-
-  function iconTimer() {
-    return `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l3 2"/><path d="M9 2h6"/><path d="M12 2v3"/></svg>`;
-  }
   function iconBack() {
     return `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>`;
   }
@@ -2460,23 +1672,9 @@
     if (parts[0] === "g" && parts[1] && findGroup(parts[1])) {
       ui.view = "group";
       ui.groupId = parts[1];
-      ui.runId = null;
-    } else if (parts[0] === "run" && parts[1]) {
-      const rec = findRun(parts[1]);
-      if (rec) {
-        ui.view = "run-detail";
-        ui.runId = rec.id;
-      } else {
-        ui.view = "run";
-        ui.runId = null;
-      }
-    } else if (parts[0] === "run") {
-      ui.view = "run";
-      ui.runId = null;
     } else {
       ui.view = "home";
       ui.groupId = null;
-      ui.runId = null;
     }
     render();
   }

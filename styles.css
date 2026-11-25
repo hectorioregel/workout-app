@@ -228,9 +228,6 @@ textarea { resize: vertical; min-height: 80px; }
   font-weight: 650;
 }
 .warmup input { width: 22px; height: 22px; accent-color: var(--accent); }
-.lr-set { display: flex; gap: 8px; align-items: stretch; margin-top: 8px; }
-.lr-label { width: 48px; align-self: center; font-size: 12px; font-weight: 750; color: var(--text-dim); }
-.group-card.run .group-mark { background: rgba(92, 255, 196, 0.14); color: #5CFFC4; }
 
 .group-meta { flex: 1; min-width: 0; }
 .group-meta h2 {
@@ -763,39 +760,11 @@ textarea { resize: vertical; min-height: 80px; }
   color: var(--accent);
 }
 
-.presets {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
-  margin-bottom: 12px;
-}
-
-.preset {
-  min-height: 52px;
-  border-radius: 14px;
-  background: var(--surface-2);
-  font-weight: 750;
-  font-size: 16px;
-}
-
-.preset.on {
-  background: var(--accent);
-  color: var(--accent-ink);
-}
-
 .timer-controls {
   display: grid;
   grid-template-columns: 1fr 1fr 1fr;
   gap: 8px;
   margin-top: 8px;
-}
-
-.custom-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr auto;
-  gap: 8px;
-  align-items: end;
-  margin-bottom: 8px;
 }
 
 /* History */
@@ -880,7 +849,7 @@ textarea { resize: vertical; min-height: 80px; }
   .timer-display { font-size: 72px; padding: 8px 0 16px; }
 }
 
-/* Outdoor run */
+/* Update banner */
 #sw-update {
   position: fixed;
   left: 16px;
@@ -907,106 +876,4 @@ textarea { resize: vertical; min-height: 80px; }
   border-radius: 12px;
   font-weight: 800;
   flex-shrink: 0;
-}
-
-.page.run-page { padding-bottom: calc(var(--safe-bot) + 24px); }
-
-.run-map, .run-detail-map {
-  height: 230px;
-  border-radius: 16px;
-  overflow: hidden;
-  background: var(--bg-elevated);
-  z-index: 1;
-  margin-bottom: 14px;
-}
-.run-detail-map { height: 260px; }
-
-.leaflet-container { background: #151820; font: inherit; }
-.leaflet-control-attribution {
-  background: rgba(11, 13, 17, 0.72) !important;
-  color: var(--text-faint);
-  font-size: 10px;
-}
-.leaflet-control-attribution a { color: var(--text-dim); }
-
-.run-note {
-  background: var(--surface);
-  border-radius: var(--radius-sm);
-  padding: 12px 14px;
-  color: var(--text-dim);
-  font-size: 13px;
-  font-weight: 550;
-  line-height: 1.45;
-  margin-bottom: 14px;
-}
-.run-note strong { color: var(--text); }
-
-.run-stats {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-  margin-bottom: 14px;
-}
-.run-stat {
-  background: var(--surface);
-  border-radius: 16px;
-  padding: 14px 12px 12px;
-  text-align: center;
-}
-.run-stat.wide { grid-column: span 2; }
-.run-stat .lbl {
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--text-faint);
-  margin-bottom: 4px;
-}
-.run-stat .val {
-  font-size: 28px;
-  font-weight: 800;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: -0.03em;
-  line-height: 1.1;
-}
-.run-stat.wide .val { font-size: 40px; }
-
-.run-gps {
-  text-align: center;
-  color: var(--text-faint);
-  font-size: 12px;
-  font-weight: 600;
-  margin: -6px 0 12px;
-  min-height: 16px;
-}
-.run-gps.err { color: var(--danger); }
-
-.run-list { display: grid; gap: 8px; margin-top: 8px; }
-.run-item {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  width: 100%;
-  text-align: left;
-  background: var(--surface);
-  border-radius: 16px;
-  padding: 14px 16px;
-}
-.run-item:active { transform: scale(0.985); background: var(--surface-2); }
-.run-item h3 {
-  margin: 0 0 2px;
-  font-size: 16px;
-  font-weight: 750;
-}
-.run-item p {
-  margin: 0;
-  color: var(--text-dim);
-  font-size: 13px;
-  font-weight: 600;
-}
-.run-item .chev { margin-left: auto; }
-
-.session-banner.run-banner {
-  background: rgba(92, 255, 196, 0.12);
-  border-color: color-mix(in srgb, #5CFFC4 35%, transparent);
 }

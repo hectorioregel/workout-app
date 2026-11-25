@@ -1,23 +1,15 @@
-const CACHE = "workout-v12";
-const VER = "12";
+const CACHE = "workout-v13";
+const VER = "13";
 const ASSETS = [
-  { url: "./index.html?v=12", keys: ["./", "./index.html", "./index.html?v=12"] },
-  { url: "./styles.css?v=12", keys: ["./styles.css", "./styles.css?v=12"] },
-  { url: "./app.js?v=12", keys: ["./app.js", "./app.js?v=12"] },
-  { url: "./run-math.js?v=12", keys: ["./run-math.js", "./run-math.js?v=12"] },
-  { url: "./vendor/leaflet/leaflet.css?v=12", keys: ["./vendor/leaflet/leaflet.css", "./vendor/leaflet/leaflet.css?v=12"] },
-  { url: "./vendor/leaflet/leaflet.js?v=12", keys: ["./vendor/leaflet/leaflet.js", "./vendor/leaflet/leaflet.js?v=12"] },
-  { url: "./manifest.json?v=12", keys: ["./manifest.json", "./manifest.json?v=12"] },
+  { url: "./index.html?v=13", keys: ["./", "./index.html", "./index.html?v=13"] },
+  { url: "./styles.css?v=13", keys: ["./styles.css", "./styles.css?v=13"] },
+  { url: "./app.js?v=13", keys: ["./app.js", "./app.js?v=13"] },
+  { url: "./manifest.json?v=13", keys: ["./manifest.json", "./manifest.json?v=13"] },
   { url: "./icons/icon-192.png", keys: ["./icons/icon-192.png"] },
   { url: "./icons/icon-512.png", keys: ["./icons/icon-512.png"] },
   { url: "./icons/icon-512-maskable.png", keys: ["./icons/icon-512-maskable.png"] },
   { url: "./icons/apple-touch-icon.png", keys: ["./icons/apple-touch-icon.png"] },
-  { url: "./icons/favicon.png", keys: ["./icons/favicon.png"] },
-  { url: "./vendor/leaflet/images/marker-icon.png", keys: ["./vendor/leaflet/images/marker-icon.png"] },
-  { url: "./vendor/leaflet/images/marker-icon-2x.png", keys: ["./vendor/leaflet/images/marker-icon-2x.png"] },
-  { url: "./vendor/leaflet/images/marker-shadow.png", keys: ["./vendor/leaflet/images/marker-shadow.png"] },
-  { url: "./vendor/leaflet/images/layers.png", keys: ["./vendor/leaflet/images/layers.png"] },
-  { url: "./vendor/leaflet/images/layers-2x.png", keys: ["./vendor/leaflet/images/layers-2x.png"] }
+  { url: "./icons/favicon.png", keys: ["./icons/favicon.png"] }
 ];
 
 self.addEventListener("install", (event) => {
